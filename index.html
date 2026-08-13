@@ -675,7 +675,7 @@
         <button class="btn ghost" id="nsChangeNameBtn">Đổi tên</button>
       </div>
       <div class="branch-grid" id="nsKpiGrid"></div>
-      <div class="kpi-explain-note">Cách tính: KPI = (số HV loại A + loại B) ÷ tổng số bài kiểm tra tính KPI trong tháng đó. Case "chưa xếp loại" đã được TLQM <strong>duyệt</strong> sẽ được loại khỏi mẫu số — nên nếu bạn không còn case nào tồn đọng, KPI tự động hiện 100%.</div>
+      <div class="kpi-explain-note">Cách tính: KPI = (số HV loại A + loại B) ÷ tổng số bài kiểm tra tính KPI trong tháng đó. Case "chưa xếp loại" đã được TLQM <strong>duyệt</strong> sẽ được loại khỏi mẫu số.</div>
 
       <div class="section-label" style="margin-top:36px;">
         <div><h2 style="font-size:16px;">Tra cứu case của tôi</h2></div>
@@ -686,6 +686,7 @@
         <select id="nsClassFilter"><option value="all">Tất cả lớp</option></select>
         <select id="nsStatusFilter">
           <option value="all">Tất cả trạng thái</option>
+          <option value="graded">Đã có kết quả (A/B/C/D)</option>
           <option value="nosubmit">Chưa giải trình</option>
           <option value="pending">Đã gửi, chờ duyệt</option>
           <option value="approved">Đã duyệt</option>
@@ -1400,7 +1401,7 @@
         '<div class="case-top">'+
           '<div>'+
             '<div class="case-who">'+escapeHtml(c.tenHocVien||'(không rõ tên)')+'</div>'+
-            '<div class="case-meta"><span>Chi nhánh: '+escapeHtml(c.tenTrungTam.replace('Scots English ',''))+'</span><span>AS/AF: '+escapeHtml(c.af)+'</span</div>'+
+            '<div class="case-meta"><span>Chi nhánh: '+escapeHtml(c.tenTrungTam.replace('Scots English ',''))+'</span><span>AS/AF: '+escapeHtml(c.af)+'</span></div>'+
           '</div>'+
           '<div>'+statusHtml+'</div>'+
         '</div>'+
@@ -1548,9 +1549,11 @@
     var originalLabel = btn ? btn.innerHTML : '';
     if(btn){ btn.disabled = true; btn.textContent = 'Đang đồng bộ…'; }
 
-    // Part 1: case documents (only the ones needing giải trình).
+    // Part 1: student records for the month — ALL of them, not just the
+    // ones needing giải trình, so each AS/AF can look up their full roster
+    // in their own view, not only the problem cases.
     var rows = state.masterRows.filter(function(r){
-      return r.sourceFile===state.currentMonth && isUnclassified(r.xepLoaiTong) && state.branchNames.indexOf(r.tenTrungTam)!==-1;
+      return r.sourceFile===state.currentMonth && state.branchNames.indexOf(r.tenTrungTam)!==-1;
     });
     var created=0, updated=0, failed=0;
     var caseTasks = rows.map(function(r){
@@ -1563,6 +1566,7 @@
           ngayKiemTra: r.ngayKiemTra instanceof Date ? r.ngayKiemTra.toISOString() : String(r.ngayKiemTra||''),
           sourceFile: r.sourceFile||'', loaiBaiThi: r.loaiBaiThi||'',
           xepLoaiSpeaking: r.xepLoaiSpeaking||'', xepLoaiWritten: r.xepLoaiWritten||'', xepLoaiTong: r.xepLoaiTong||'',
+          needsExplanation: isUnclassified(r.xepLoaiTong),
           updatedAt: window.FB.serverTimestamp()
         };
         if(!snap.exists()){
@@ -1754,7 +1758,9 @@
     var card = document.createElement('div');
     card.className = 'case-card';
     var statusHtml;
-    if(c.status==='approved') statusHtml = '<span class="stamp approved">Đã duyệt</span>';
+    if(!c.needsExplanation){
+      statusHtml = '<span class="grade-badge '+escapeHtml(c.xepLoaiTong||'')+'" style="width:auto;border-radius:20px;padding:4px 12px;font-size:11px;">'+escapeHtml(c.xepLoaiTong||'—')+'</span>';
+    } else if(c.status==='approved') statusHtml = '<span class="stamp approved">Đã duyệt</span>';
     else if(c.status==='rejected') statusHtml = '<span class="stamp rejected">Bị từ chối — cần bổ sung</span>';
     else if(c.giaiTrinh) statusHtml = '<span class="stamp pending">Đã gửi, chờ duyệt</span>';
     else statusHtml = '<span class="stamp nosubmit">Chưa gửi giải trình</span>';
@@ -1775,6 +1781,10 @@
         infoItem('Written', gradeTextCell(c.xepLoaiWritten))+
         infoItem('Kết quả', ketQuaLabel(c.xepLoaiTong))+
       '</div>';
+
+    if(!c.needsExplanation){
+      return card; // graded — informational only, nothing to submit
+    }
 
     if(editable){
       var ta = document.createElement('textarea');
@@ -1908,16 +1918,18 @@
       if(studentFilter!=='all' && c.tenHocVien!==studentFilter) return false;
       if(classFilter!=='all' && c.maLop!==classFilter) return false;
       if(statusFilter!=='all'){
-        var st = c.status==='approved' ? 'approved' : c.status==='rejected' ? 'rejected' : c.giaiTrinh ? 'pending' : 'nosubmit';
+        var st = !c.needsExplanation ? 'graded'
+          : c.status==='approved' ? 'approved' : c.status==='rejected' ? 'rejected' : c.giaiTrinh ? 'pending' : 'nosubmit';
         if(st!==statusFilter) return false;
       }
       return true;
     });
 
     // Cases still needing action (no giải trình yet, or bị từ chối) float
-    // to the top; already-resolved ones (đã duyệt / chờ duyệt) sort after.
+    // to the top; already-resolved/graded ones sort after.
     all.sort(function(a,b){
       function rank(c){
+        if(!c.needsExplanation) return 4; // đã có kết quả, không cần xử lý
         if(!c.giaiTrinh && c.status!=='approved') return 0; // chưa giải trình
         if(c.status==='rejected') return 1;
         if(c.status!=='approved') return 2; // chờ duyệt

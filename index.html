@@ -13,6 +13,13 @@
   // ---------- Firebase (Firestore) bridge ----------
   // This runs as an ES module so we can import Firebase from the CDN.
   // It talks to the rest of the (non-module) app through window.FB.
+  //
+  // IMPORTANT: TLQM and AS/AF each get their OWN Firebase "app" instance
+  // (same project, same Firestore database — just two independent login
+  // sessions). This means switching between the two roles never signs
+  // either one out, so you don't have to log back into TLQM (or re-pick
+  // AS/AF) every time you switch — both stay signed in until you close
+  // the browser or explicitly sign out.
   import { initializeApp } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-app.js";
   import {
     getFirestore, collection, doc, getDoc, setDoc, updateDoc,
@@ -31,36 +38,47 @@
     appId: "1:32082656635:web:f893e2fdda89658121d1de"
   };
 
-  window.FB = { enabled: false, ready: false, db: null, auth: null, casesCol: null, error: null, user: null };
+  window.FB = {
+    enabled: false, error: null,
+    doc: doc, getDoc: getDoc, setDoc: setDoc, updateDoc: updateDoc,
+    onSnapshot: onSnapshot, serverTimestamp: serverTimestamp, query: query,
+    tlqm: { db:null, auth:null, casesCol:null, kpiCol:null, ready:false, user:null },
+    asaf: { db:null, auth:null, casesCol:null, kpiCol:null, ready:false, user:null }
+  };
 
   try{
-    var fbApp = initializeApp(firebaseConfig);
-    var db = getFirestore(fbApp);
-    var auth = getAuth(fbApp);
-    window.FB.db = db;
-    window.FB.auth = auth;
-    window.FB.casesCol = collection(db, 'cases');
-    window.FB.kpiCol = collection(db, 'kpiSummary');
-    window.FB.doc = doc;
-    window.FB.getDoc = getDoc;
-    window.FB.setDoc = setDoc;
-    window.FB.updateDoc = updateDoc;
-    window.FB.onSnapshot = onSnapshot;
-    window.FB.serverTimestamp = serverTimestamp;
-    window.FB.query = query;
+    var tlqmApp = initializeApp(firebaseConfig, 'tlqm');
+    var asafApp = initializeApp(firebaseConfig, 'asaf');
+
+    var tlqmDb = getFirestore(tlqmApp);
+    var tlqmAuth = getAuth(tlqmApp);
+    window.FB.tlqm.db = tlqmDb;
+    window.FB.tlqm.auth = tlqmAuth;
+    window.FB.tlqm.casesCol = collection(tlqmDb, 'cases');
+    window.FB.tlqm.kpiCol = collection(tlqmDb, 'kpiSummary');
+
+    var asafDb = getFirestore(asafApp);
+    var asafAuth = getAuth(asafApp);
+    window.FB.asaf.db = asafDb;
+    window.FB.asaf.auth = asafAuth;
+    window.FB.asaf.casesCol = collection(asafDb, 'cases');
+    window.FB.asaf.kpiCol = collection(asafDb, 'kpiSummary');
+
     window.FB.enabled = true;
+    window.FB.signInEmail = function(email, password){ return signInWithEmailAndPassword(tlqmAuth, email, password); };
+    window.FB.signOutTlqm = function(){ return signOut(tlqmAuth); };
+    window.FB.signInAnon = function(){ return signInAnonymously(asafAuth); };
+    window.FB.signOutAsaf = function(){ return signOut(asafAuth); };
 
-    // These are called explicitly by the app once the person picks a role,
-    // rather than signing in automatically — TLQM needs a real password,
-    // AS/AF gets a silent anonymous session. Both return a Promise.
-    window.FB.signInAnon = function(){ return signInAnonymously(auth); };
-    window.FB.signInEmail = function(email, password){ return signInWithEmailAndPassword(auth, email, password); };
-    window.FB.doSignOut = function(){ return signOut(auth); };
-
-    onAuthStateChanged(auth, function(user){
-      window.FB.user = user;
-      window.FB.ready = !!user;
-      window.dispatchEvent(new Event(user ? 'fb-ready' : 'fb-signedout'));
+    onAuthStateChanged(tlqmAuth, function(user){
+      window.FB.tlqm.user = user;
+      window.FB.tlqm.ready = !!user;
+      window.dispatchEvent(new Event(user ? 'fb-tlqm-ready' : 'fb-tlqm-signedout'));
+    });
+    onAuthStateChanged(asafAuth, function(user){
+      window.FB.asaf.user = user;
+      window.FB.asaf.ready = !!user;
+      window.dispatchEvent(new Event(user ? 'fb-asaf-ready' : 'fb-asaf-signedout'));
     });
   }catch(err){
     window.FB.error = err;
@@ -271,17 +289,17 @@
   .queue-list{ display:flex; flex-direction:column; gap:10px; }
   .case-card{
     background:var(--paper-card); border:1px solid var(--line); border-radius:var(--radius);
-    padding:16px 18px; box-shadow:var(--shadow);
+    padding:16px 18px; box-shadow:var(--shadow); min-width:0; overflow-wrap:break-word;
   }
-  .case-top{ display:flex; justify-content:space-between; gap:14px; flex-wrap:wrap; align-items:flex-start; }
-  .case-who{ font-size:14.5px; font-weight:600; }
+  .case-top{ display:flex; justify-content:space-between; gap:14px; flex-wrap:wrap; align-items:flex-start; min-width:0; }
+  .case-who{ font-size:14.5px; font-weight:600; overflow-wrap:break-word; }
   .case-meta{ font-family:'Be Vietnam Pro',sans-serif; font-variant-numeric:tabular-nums; font-size:11.5px; color:var(--ink-soft); margin-top:3px; }
   .case-meta span{ margin-right:12px; }
   /* Compact label/value info grid — used in both admin queue cards and
      the nhân sự (staff) case cards, so the same fields always look the
      same regardless of which role is viewing them. */
   .case-info-grid{
-    display:grid; grid-template-columns:repeat(auto-fill,minmax(108px,1fr)); gap:10px 16px;
+    display:grid; grid-template-columns:repeat(auto-fill,minmax(120px,1fr)); gap:10px 16px;
     margin-top:12px; padding-top:12px; border-top:1px solid var(--line-soft);
   }
   .case-info-item{ display:flex; flex-direction:column; gap:2px; min-width:0; }
@@ -291,18 +309,19 @@
   }
   .case-info-value{
     font-size:12.5px; font-family:'Be Vietnam Pro',sans-serif; font-variant-numeric:tabular-nums;
-    color:var(--ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    color:var(--ink); overflow-wrap:break-word; word-break:break-word;
   }
   .case-explanation{
     margin:12px 0; padding:10px 12px; background:var(--paper); border-radius:10px;
     font-size:13px; line-height:1.55; color:var(--ink);
-    border-left:3px solid var(--line);
+    border-left:3px solid var(--line); overflow-wrap:break-word; word-break:break-word; white-space:pre-wrap;
   }
   .case-explanation.empty{ color:var(--ink-faint); font-style:italic; border-left-color:var(--red); }
-  .case-actions{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:10px; }
+  .case-actions{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:10px; width:100%; }
   .case-note{
     width:100%; margin-top:10px; padding:8px 10px; border-radius:10px; border:1px solid var(--line);
     font-size:12.5px; font-family:'Be Vietnam Pro',sans-serif; resize:vertical; min-height:36px; background:#fff;
+    box-sizing:border-box;
   }
 
   /* stamp badges */
@@ -441,6 +460,11 @@
     background:var(--paper); font-size:14px; color:var(--ink); font-family:'Be Vietnam Pro',sans-serif;
   }
   .ns-picker-hint{ font-size:11.5px; color:var(--ink-faint); margin-top:16px; line-height:1.5; }
+  .kpi-explain-note{
+    font-size:12px; color:var(--ink-soft); line-height:1.6; margin-top:14px;
+    padding:10px 14px; background:var(--slate-bg); border-radius:10px;
+  }
+  .kpi-explain-note strong{ color:var(--ink); }
   .ns-case-empty{ text-align:center; padding:30px; color:var(--ink-faint); font-size:13px; }
   .ns-textarea{
     width:100%; min-height:70px; margin-top:10px; padding:10px 12px; border-radius:10px;
@@ -557,7 +581,8 @@
     </div>
 
     <div class="tab-panel active" id="panel-ranking">
-      <div class="filter-row">
+      <div class="kpi-explain-note">Cách tính: <strong>KPI = (A + B) ÷ Tổng</strong>. Cột "Tổng" đã trừ các case chưa xếp loại nhưng đã được duyệt (xem như không tính vào mẫu số). Nếu Tổng = 0 (không còn case nào), KPI hiện 100%.</div>
+      <div class="filter-row" style="margin-top:16px;">
         <input type="text" class="search grow" id="staffSearch" placeholder="Tìm theo tên AS/AF...">
       </div>
       <table class="staff-table" id="staffTable">
@@ -650,6 +675,7 @@
         <button class="btn ghost" id="nsChangeNameBtn">Đổi tên</button>
       </div>
       <div class="branch-grid" id="nsKpiGrid"></div>
+      <div class="kpi-explain-note">Cách tính: KPI = (số HV loại A + loại B) ÷ tổng số bài kiểm tra tính KPI trong tháng đó. Case "chưa xếp loại" đã được TLQM <strong>duyệt</strong> sẽ được loại khỏi mẫu số — nên nếu bạn không còn case nào tồn đọng, KPI tự động hiện 100%.</div>
 
       <div class="section-label" style="margin-top:36px;">
         <div><h2 style="font-size:16px;">Tra cứu case của tôi</h2></div>
@@ -658,17 +684,15 @@
         <select id="nsMonthFilter"><option value="all">Tất cả các tháng</option></select>
         <select id="nsStudentFilter"><option value="all">Tất cả học viên</option></select>
         <select id="nsClassFilter"><option value="all">Tất cả lớp</option></select>
+        <select id="nsStatusFilter">
+          <option value="all">Tất cả trạng thái</option>
+          <option value="nosubmit">Chưa giải trình</option>
+          <option value="pending">Đã gửi, chờ duyệt</option>
+          <option value="approved">Đã duyệt</option>
+          <option value="rejected">Từ chối</option>
+        </select>
       </div>
-
-      <div class="section-label" style="margin-top:22px;">
-        <div><h2 style="font-size:15px;">Case cần giải trình</h2></div>
-      </div>
-      <div class="queue-list" id="nsPendingList"></div>
-
-      <div class="section-label" style="margin-top:40px;">
-        <div><h2 style="font-size:16px;">Lịch sử đã xử lý</h2></div>
-      </div>
-      <div class="queue-list" id="nsHistoryList"></div>
+      <div class="queue-list" id="nsCaseList"></div>
     </div>
   </main>
 </div><!-- /nsApp -->
@@ -792,7 +816,8 @@
   // nhân sự see the same up-to-date picture.
   var firestoreCases = {};
   var firestoreKpiSummary = {};
-  var firestoreListenerStarted = false;
+  var casesUnsub = null, kpiUnsub = null;
+  var activeListenerRole = null; // 'admin' | 'staff' | null
 
   function sanitizeCaseId(rowKey){
     return String(rowKey).replace(/[\/\s]+/g,'_').slice(0,900);
@@ -814,17 +839,28 @@
     };
   }
 
-  function startFirestoreListener(){
-    if(firestoreListenerStarted) return;
+  // Tears down whatever listeners are currently attached — always call this
+  // before attaching a new pair, so switching roles never leaves a stale
+  // listener (tied to a now-irrelevant session) silently failing forever.
+  function stopFirestoreListeners(){
+    if(casesUnsub){ try{ casesUnsub(); }catch(e){} casesUnsub=null; }
+    if(kpiUnsub){ try{ kpiUnsub(); }catch(e){} kpiUnsub=null; }
+    activeListenerRole = null;
+  }
+
+  function startFirestoreListenerFor(role){
     if(!window.FB || !window.FB.enabled) return;
-    firestoreListenerStarted = true;
+    if(activeListenerRole===role) return; // already listening correctly
+    stopFirestoreListeners();
+    var ctx = role==='admin' ? window.FB.tlqm : window.FB.asaf;
+    if(!ctx || !ctx.casesCol) return;
+    activeListenerRole = role;
     try{
-      window.FB.onSnapshot(window.FB.casesCol, function(snap){
+      casesUnsub = window.FB.onSnapshot(ctx.casesCol, function(snap){
         var next = {};
         snap.forEach(function(docSnap){ next[docSnap.id] = docSnap.data(); });
         firestoreCases = next;
         document.getElementById('nsOffline').style.display = 'none';
-        // Re-render whichever view is currently visible.
         if(document.getElementById('adminApp').style.display!=='none' && state.masterRows.length){
           var agg = aggregate(state.currentMonth, state.branchNames);
           renderRegionGrid(agg); renderBranchGrid(agg); renderStaffTable(agg); renderQueue();
@@ -834,10 +870,10 @@
           if(state.nsSelectedName) renderNsCases();
         }
       }, function(err){
-        console.error('Firestore listener error:', err);
+        console.error('Firestore listener error ('+role+'):', err);
         document.getElementById('nsOffline').style.display='block';
       });
-      window.FB.onSnapshot(window.FB.kpiCol, function(snap){
+      kpiUnsub = window.FB.onSnapshot(ctx.kpiCol, function(snap){
         var next = {};
         snap.forEach(function(docSnap){ next[docSnap.id] = docSnap.data(); });
         firestoreKpiSummary = next;
@@ -846,18 +882,15 @@
           if(state.nsSelectedName) renderNsCases();
         }
       }, function(err){
-        console.error('KPI summary listener error:', err);
+        console.error('KPI summary listener error ('+role+'):', err);
       });
     }catch(err){
-      console.error('Could not start Firestore listener:', err);
+      console.error('Could not start Firestore listeners:', err);
     }
   }
-  window.addEventListener('fb-ready', startFirestoreListener);
   window.addEventListener('fb-error', function(){
     document.getElementById('nsOffline').style.display='block';
   });
-  // In case fb-ready already fired before this script finished loading.
-  if(window.FB && window.FB.ready) startFirestoreListener();
 
   // ---------- state ----------
   var state = {
@@ -1407,10 +1440,10 @@
   }
 
   function pushCaseUpdate(rowKey, patch){
-    if(!window.FB || !window.FB.enabled || !window.FB.ready) return Promise.resolve(false);
+    if(!window.FB || !window.FB.enabled || !window.FB.tlqm.ready) return Promise.resolve(false);
     try{
       var id = sanitizeCaseId(rowKey);
-      var ref = window.FB.doc(window.FB.casesCol, id);
+      var ref = window.FB.doc(window.FB.tlqm.casesCol, id);
       var payload = Object.assign({}, patch, {updatedAt: window.FB.serverTimestamp()});
       return window.FB.setDoc(ref, payload, {merge:true}).then(function(){ return true; }).catch(function(err){
         console.error('Firestore write failed:', err);
@@ -1430,6 +1463,15 @@
     d.seededFromFile = false;
     decisions[rowKey] = d;
     saveDecisions(decisions);
+
+    // Optimistic update: patch the local Firestore cache immediately so the
+    // re-render below reflects the new status right away, instead of
+    // waiting for the write to round-trip back through the listener.
+    var fsId = sanitizeCaseId(rowKey);
+    if(firestoreCases[fsId]){
+      firestoreCases[fsId] = Object.assign({}, firestoreCases[fsId], {status: status, decidedAt: d.decidedAt, decidedBy: 'TLQM'});
+    }
+
     pushCaseUpdate(rowKey, {status: status, decidedAt: d.decidedAt, decidedBy: 'TLQM'});
     toast(status==='approved' ? 'Đã duyệt — case này được loại khỏi tổng số HV tính KPI.' : status==='rejected' ? 'Đã từ chối.' : 'Đã đặt lại trạng thái.');
     var agg = aggregate(state.currentMonth, state.branchNames);
@@ -1497,7 +1539,7 @@
   }
 
   function syncQueueToFirestore(){
-    if(!window.FB || !window.FB.enabled || !window.FB.ready){
+    if(!window.FB || !window.FB.enabled || !window.FB.tlqm.ready){
       toast('Chưa kết nối được tới Firestore. Kiểm tra mạng rồi thử lại.');
       return;
     }
@@ -1513,7 +1555,7 @@
     var created=0, updated=0, failed=0;
     var caseTasks = rows.map(function(r){
       var id = sanitizeCaseId(r.rowKey);
-      var ref = window.FB.doc(window.FB.casesCol, id);
+      var ref = window.FB.doc(window.FB.tlqm.casesCol, id);
       return window.FB.getDoc(ref).then(function(snap){
         var identity = {
           branch: r.tenTrungTam, af: r.af, tenHocVien: r.tenHocVien||'',
@@ -1551,7 +1593,7 @@
       Object.keys(staffMap).forEach(function(af){
         var s = staffMap[af];
         var kpiId = sanitizeCaseId(branch+'|'+af+'|'+state.currentMonth);
-        var ref = window.FB.doc(window.FB.kpiCol, kpiId);
+        var ref = window.FB.doc(window.FB.tlqm.kpiCol, kpiId);
         kpiCount++;
         kpiTasks.push(window.FB.setDoc(ref, {
           branch: branch, af: af, sourceFile: state.currentMonth,
@@ -1748,19 +1790,26 @@
       btn.addEventListener('click', function(){
         var text = ta.value.trim();
         if(!text){ toast('Bạn cần nhập nội dung giải trình.'); return; }
-        if(!window.FB || !window.FB.enabled || !window.FB.ready){ toast('Chưa kết nối được máy chủ, thử lại sau.'); return; }
+        if(!window.FB || !window.FB.enabled || !window.FB.asaf.ready){ toast('Chưa kết nối được máy chủ, thử lại sau.'); return; }
         btn.disabled = true;
-        var ref = window.FB.doc(window.FB.casesCol, c.id);
+        var submittedAt = new Date().toISOString();
+        // Optimistic update so this person's own list reflects the submit
+        // immediately, without waiting on the round trip.
+        if(firestoreCases[c.id]){
+          firestoreCases[c.id] = Object.assign({}, firestoreCases[c.id], {
+            giaiTrinh:text, submittedBy:state.nsSelectedName, submittedAt:submittedAt, status:null
+          });
+        }
+        renderNsCases();
+        var ref = window.FB.doc(window.FB.asaf.casesCol, c.id);
         window.FB.setDoc(ref, {
-          giaiTrinh: text, submittedBy: state.nsSelectedName, submittedAt: new Date().toISOString(),
+          giaiTrinh: text, submittedBy: state.nsSelectedName, submittedAt: submittedAt,
           status: null, updatedAt: window.FB.serverTimestamp()
         }, {merge:true}).then(function(){
           toast('Đã gửi giải trình.');
-          btn.disabled = false;
         }).catch(function(err){
           console.error(err);
           toast('Gửi không thành công, thử lại.');
-          btn.disabled = false;
         });
       });
       row.appendChild(btn);
@@ -1849,6 +1898,7 @@
     var monthFilter = document.getElementById('nsMonthFilter').value || 'all';
     var studentFilter = document.getElementById('nsStudentFilter').value || 'all';
     var classFilter = document.getElementById('nsClassFilter').value || 'all';
+    var statusFilter = document.getElementById('nsStatusFilter').value || 'all';
 
     var all = Object.keys(firestoreCases).map(function(id){
       var c = Object.assign({id:id}, firestoreCases[id]); return c;
@@ -1857,44 +1907,56 @@
       if(monthFilter!=='all' && c.sourceFile!==monthFilter) return false;
       if(studentFilter!=='all' && c.tenHocVien!==studentFilter) return false;
       if(classFilter!=='all' && c.maLop!==classFilter) return false;
+      if(statusFilter!=='all'){
+        var st = c.status==='approved' ? 'approved' : c.status==='rejected' ? 'rejected' : c.giaiTrinh ? 'pending' : 'nosubmit';
+        if(st!==statusFilter) return false;
+      }
       return true;
     });
 
-    var pending = all.filter(function(c){ return c.status!=='approved'; });
-    pending.sort(function(a,b){ return (a.status==='rejected'?0:1) - (b.status==='rejected'?0:1); });
-    var history = all.filter(function(c){ return c.status==='approved'; });
+    // Cases still needing action (no giải trình yet, or bị từ chối) float
+    // to the top; already-resolved ones (đã duyệt / chờ duyệt) sort after.
+    all.sort(function(a,b){
+      function rank(c){
+        if(!c.giaiTrinh && c.status!=='approved') return 0; // chưa giải trình
+        if(c.status==='rejected') return 1;
+        if(c.status!=='approved') return 2; // chờ duyệt
+        return 3; // đã duyệt
+      }
+      return rank(a)-rank(b);
+    });
 
-    var pendingList = document.getElementById('nsPendingList');
-    pendingList.innerHTML = '';
-    if(!pending.length){
-      pendingList.innerHTML = '<div class="ns-case-empty">Không có case nào khớp bộ lọc.</div>';
+    var list = document.getElementById('nsCaseList');
+    list.innerHTML = '';
+    if(!all.length){
+      list.innerHTML = '<div class="ns-case-empty">Không có case nào khớp bộ lọc.</div>';
     } else {
-      pending.forEach(function(c){ pendingList.appendChild(buildNsCaseCard(c, true)); });
-    }
-
-    var historyList = document.getElementById('nsHistoryList');
-    historyList.innerHTML = '';
-    if(!history.length){
-      historyList.innerHTML = '<div class="ns-case-empty">Không có case nào khớp bộ lọc.</div>';
-    } else {
-      history.forEach(function(c){ historyList.appendChild(buildNsCaseCard(c, false)); });
+      all.forEach(function(c){ list.appendChild(buildNsCaseCard(c, c.status!=='approved')); });
     }
   }
 
   // ---------- role gate (with real Firebase sign-in) ----------
+  // TLQM and AS/AF each have their own independent Firebase session
+  // (window.FB.tlqm / window.FB.asaf), so "Đổi vai trò" below never signs
+  // either one out — switching back to a role you already logged into is
+  // instant, no re-entering credentials or re-uploading the Excel file.
   var ROLE_KEY = 'kpiLedger.role';
   function showAdminApp(){
     document.getElementById('roleGate').style.display='none';
     document.getElementById('adminApp').style.display='block';
     document.getElementById('nsApp').style.display='none';
-    startFirestoreListener();
+    startFirestoreListenerFor('admin');
+    if(state.masterRows.length){
+      renderAll();
+    }
   }
   function showNsApp(){
     document.getElementById('roleGate').style.display='none';
     document.getElementById('adminApp').style.display='none';
     document.getElementById('nsApp').style.display='block';
-    startFirestoreListener();
+    startFirestoreListenerFor('staff');
     renderNsNamePicker();
+    if(state.nsSelectedName) renderNsCases();
   }
   function resetRoleGateView(){
     document.getElementById('roleChoiceView').style.display='block';
@@ -1903,34 +1965,37 @@
     document.getElementById('tlqmEmail').value='';
     document.getElementById('tlqmPassword').value='';
   }
+  // "Đổi vai trò" — just go back to the picker. Neither session is signed
+  // out, so picking the same role again (or the other one, if you're
+  // already logged into it too) re-enters instantly.
   function showRoleGate(){
-    try{ localStorage.removeItem(ROLE_KEY); }catch(e){}
-    if(window.FB && window.FB.enabled && window.FB.doSignOut){
-      window.FB.doSignOut().catch(function(){ /* ignore */ });
-    }
+    stopFirestoreListeners();
     resetRoleGateView();
     document.getElementById('roleGate').style.display='flex';
     document.getElementById('adminApp').style.display='none';
     document.getElementById('nsApp').style.display='none';
   }
 
-  function currentAuthProvider(){
-    if(!window.FB || !window.FB.user) return null;
-    return window.FB.user.isAnonymous ? 'anonymous' : 'password';
-  }
   function tryAutoEnterFromSession(){
     if(document.getElementById('adminApp').style.display!=='none') return; // already in
     if(document.getElementById('nsApp').style.display!=='none') return;
-    var provider = currentAuthProvider();
     var savedRole = null;
     try{ savedRole = localStorage.getItem(ROLE_KEY); }catch(e){}
-    if(savedRole==='admin' && provider==='password'){ showAdminApp(); }
-    else if(savedRole==='staff' && provider==='anonymous'){ showNsApp(); }
+    if(savedRole==='admin' && window.FB.tlqm.user){ showAdminApp(); }
+    else if(savedRole==='staff' && window.FB.asaf.user){ showNsApp(); }
   }
-  window.addEventListener('fb-ready', tryAutoEnterFromSession);
-  if(window.FB && window.FB.ready) tryAutoEnterFromSession();
+  window.addEventListener('fb-tlqm-ready', tryAutoEnterFromSession);
+  window.addEventListener('fb-asaf-ready', tryAutoEnterFromSession);
+  if(window.FB && (window.FB.tlqm.ready || window.FB.asaf.ready)) tryAutoEnterFromSession();
 
   document.getElementById('roleAdminBtn').addEventListener('click', function(){
+    if(!window.FB || !window.FB.enabled){ toast('Chưa kết nối được Firebase.'); return; }
+    if(window.FB.tlqm.user){
+      // Already signed in from earlier in this session — skip the form.
+      try{ localStorage.setItem(ROLE_KEY,'admin'); }catch(e){}
+      showAdminApp();
+      return;
+    }
     document.getElementById('roleChoiceView').style.display='none';
     document.getElementById('tlqmLoginView').style.display='block';
     document.getElementById('tlqmEmail').focus();
@@ -1964,6 +2029,11 @@
 
   document.getElementById('roleStaffBtn').addEventListener('click', function(){
     if(!window.FB || !window.FB.enabled){ toast('Chưa kết nối được Firebase.'); return; }
+    if(window.FB.asaf.user){
+      try{ localStorage.setItem(ROLE_KEY,'staff'); }catch(e){}
+      showNsApp();
+      return;
+    }
     var btn = document.getElementById('roleStaffBtn');
     btn.disabled = true;
     window.FB.signInAnon().then(function(){
@@ -1996,6 +2066,7 @@
   document.getElementById('nsMonthFilter').addEventListener('change', renderNsCases);
   document.getElementById('nsStudentFilter').addEventListener('change', renderNsCases);
   document.getElementById('nsClassFilter').addEventListener('change', renderNsCases);
+  document.getElementById('nsStatusFilter').addEventListener('change', renderNsCases);
 
 })();
 </script>

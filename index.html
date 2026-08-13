@@ -1,0 +1,1755 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KPI Ledger — Scots English</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script type="module">
+  // ---------- Firebase (Firestore) bridge ----------
+  // This runs as an ES module so we can import Firebase from the CDN.
+  // It talks to the rest of the (non-module) app through window.FB.
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-app.js";
+  import {
+    getFirestore, collection, doc, getDoc, setDoc, updateDoc,
+    onSnapshot, serverTimestamp, query
+  } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
+  import {
+    getAuth, signInAnonymously, onAuthStateChanged
+  } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-auth.js";
+
+  var firebaseConfig = {
+    apiKey: "AIzaSyBUw1HX_5YEKj6dak_n8FUbGIsMWwv0qI4",
+    authDomain: "scots-kpi-ledger.firebaseapp.com",
+    projectId: "scots-kpi-ledger",
+    storageBucket: "scots-kpi-ledger.firebasestorage.app",
+    messagingSenderId: "32082656635",
+    appId: "1:32082656635:web:f893e2fdda89658121d1de"
+  };
+
+  window.FB = { enabled: false, ready: false, db: null, auth: null, casesCol: null, error: null };
+
+  try{
+    var fbApp = initializeApp(firebaseConfig);
+    var db = getFirestore(fbApp);
+    var auth = getAuth(fbApp);
+    window.FB.db = db;
+    window.FB.auth = auth;
+    window.FB.casesCol = collection(db, 'cases');
+    window.FB.doc = doc;
+    window.FB.getDoc = getDoc;
+    window.FB.setDoc = setDoc;
+    window.FB.updateDoc = updateDoc;
+    window.FB.onSnapshot = onSnapshot;
+    window.FB.serverTimestamp = serverTimestamp;
+    window.FB.query = query;
+    window.FB.enabled = true;
+
+    onAuthStateChanged(auth, function(user){
+      if(user){
+        window.FB.ready = true;
+        window.dispatchEvent(new Event('fb-ready'));
+      }
+    });
+    signInAnonymously(auth).catch(function(err){
+      window.FB.error = err;
+      window.dispatchEvent(new Event('fb-error'));
+      console.error('Firebase anonymous sign-in failed:', err);
+    });
+  }catch(err){
+    window.FB.error = err;
+    console.error('Firebase init failed:', err);
+    window.dispatchEvent(new Event('fb-error'));
+  }
+</script>
+<style>
+  :root{
+    --paper:#EEF1EA;
+    --paper-card:#FBFBF7;
+    --ink:#1B2A22;
+    --ink-soft:#4B5C52;
+    --ink-faint:#7C8A80;
+    --line:#C9CFC0;
+    --line-soft:#DEE2D6;
+    --gold:#B8862E;
+    --gold-bg:#F6ECD6;
+    --green:#3C7A54;
+    --green-bg:#E4EFE3;
+    --red:#A6432F;
+    --red-bg:#F3E2DC;
+    --slate:#4A6670;
+    --slate-bg:#E4ECEC;
+    --radius:14px;
+    --shadow:0 1px 2px rgba(27,42,34,0.06), 0 6px 20px rgba(27,42,34,0.05);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:'Be Vietnam Pro',sans-serif;
+    -webkit-font-smoothing:antialiased;
+    min-height:100vh;
+  }
+  .num, .mono{ font-family:'Be Vietnam Pro',sans-serif; font-variant-numeric:tabular-nums; }
+  h1,h2,h3,.display{ font-family:'Be Vietnam Pro',sans-serif; letter-spacing:-0.01em; }
+  .eyebrow{
+    font-family:'Be Vietnam Pro',sans-serif; font-variant-numeric:tabular-nums;
+    font-size:11px;
+    letter-spacing:0.14em;
+    text-transform:uppercase;
+    color:var(--ink-faint);
+  }
+  a{color:inherit;}
+  button{font-family:inherit;}
+
+  /* ===== Header ===== */
+  header.topbar{
+    position:sticky; top:0; z-index:30;
+    background:rgba(238,241,234,0.92);
+    backdrop-filter:blur(6px);
+    border-bottom:1px solid var(--line);
+    padding:16px 28px;
+    display:flex; align-items:center; justify-content:space-between; gap:16px;
+    flex-wrap:wrap;
+  }
+  .brand{display:flex; align-items:baseline; gap:10px;}
+  .brand .mark{
+    width:34px;height:34px;border-radius:50%;
+    border:1.5px solid var(--ink);
+    display:flex;align-items:center;justify-content:center;
+    font-family:'Be Vietnam Pro',sans-serif; font-weight:600; font-size:15px;
+    transform:rotate(-6deg);
+    flex-shrink:0;
+  }
+  .brand h1{font-size:20px;margin:0;font-weight:600;}
+  .brand .sub{font-size:12px;color:var(--ink-soft);}
+  .header-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+
+  select, .btn{
+    font-size:13px;
+    font-family:'Be Vietnam Pro',sans-serif;
+    font-weight:500;
+    border-radius:10px;
+    border:1px solid var(--line);
+    background:var(--paper-card);
+    color:var(--ink);
+    padding:9px 14px;
+    cursor:pointer;
+    display:inline-flex; align-items:center; gap:6px;
+    transition:border-color .15s ease, background .15s ease, transform .1s ease;
+  }
+  .btn:active{ transform:scale(0.97); }
+  .btn svg{ width:14px; height:14px; flex-shrink:0; }
+  select:hover, .btn:hover{border-color:var(--ink-soft);}
+  .btn.primary{ background:var(--ink); color:var(--paper-card); border-color:var(--ink); font-weight:600; }
+  .btn.primary:hover{ background:#0f1a14; }
+  .btn.ghost{ background:transparent; }
+  .btn:disabled{ opacity:.45; cursor:not-allowed; }
+  .btn:focus-visible, select:focus-visible, button:focus-visible, textarea:focus-visible, input:focus-visible{
+    outline:2px solid var(--gold); outline-offset:2px;
+  }
+  input[type=file]{ display:none; }
+
+  main{ max-width:1180px; margin:0 auto; padding:28px; }
+
+  /* ===== Empty state ===== */
+  .empty{
+    margin-top:60px;
+    display:flex; flex-direction:column; align-items:center; text-align:center;
+    padding:64px 24px;
+    border:1.5px dashed var(--line);
+    border-radius:var(--radius);
+    background:var(--paper-card);
+  }
+  .empty .stamp-big{
+    width:96px;height:96px;border-radius:50%;
+    border:2px solid var(--ink);
+    display:flex;align-items:center;justify-content:center;
+    font-family:'Be Vietnam Pro',sans-serif;font-size:34px;font-weight:600;
+    transform:rotate(-8deg); margin-bottom:22px; color:var(--ink);
+  }
+  .empty h2{font-size:26px;margin:0 0 10px;}
+  .empty p{max-width:480px;color:var(--ink-soft);font-size:14.5px;line-height:1.6;margin:0 0 22px;}
+  .empty .hint{font-size:12px;color:var(--ink-faint);margin-top:18px;max-width:480px;line-height:1.6;}
+
+  /* ===== Overview cards ===== */
+  .section-label{
+    display:flex;align-items:baseline;gap:10px;margin:38px 0 14px;
+  }
+  .section-label h2{font-size:20px;margin:0;font-weight:600;}
+  .section-label .eyebrow{margin-bottom:2px;}
+  .section-label:first-child, main > .section-label:first-of-type{ margin-top:0; }
+
+  .branch-grid{
+    display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:12px;
+  }
+  .branch-card{
+    background:var(--paper-card); border:1px solid var(--line); border-radius:var(--radius);
+    padding:16px 16px 14px; cursor:pointer; text-align:left;
+    box-shadow:var(--shadow);
+    transition:transform .12s ease, border-color .12s ease;
+  }
+  .branch-card:hover{ transform:translateY(-2px); border-color:var(--ink-soft); }
+  .branch-card.active{ border-color:var(--ink); box-shadow:0 0 0 1.5px var(--ink); }
+  .region-card{ background:var(--slate-bg); border-color:var(--slate); }
+  .region-card .kpi-num{ color:var(--slate); }
+  .region-card.active{ border-color:var(--ink); box-shadow:0 0 0 1.5px var(--ink); background:var(--paper-card); }
+  .region-card.active .kpi-num{ color:var(--ink); }
+  .branch-card-head{ display:flex; align-items:flex-start; justify-content:space-between; gap:8px; margin-bottom:12px; }
+  .branch-card .name{ font-size:13px; font-weight:600; line-height:1.35; }
+  .branch-card .kpi-num{ font-family:'Be Vietnam Pro',sans-serif; font-size:30px; font-weight:600; line-height:1; }
+  .branch-card .kpi-num .pct{ font-size:16px; font-weight:500; color:var(--ink-soft); }
+  .branch-card .meta{ display:flex; justify-content:space-between; margin-top:10px; font-size:11.5px; color:var(--ink-soft); }
+  .branch-card .pending-badge{
+    flex-shrink:0; white-space:nowrap;
+    background:var(--gold-bg); color:var(--gold);
+    border-radius:20px; padding:3px 10px; font-size:10.5px; font-weight:600;
+    font-family:'Be Vietnam Pro',sans-serif; font-variant-numeric:tabular-nums;
+  }
+  .branch-card .pending-badge.zero{ background:var(--green-bg); color:var(--green); }
+
+  /* ===== Chart card ===== */
+  .chart-card{
+    background:var(--paper-card); border:1px solid var(--line); border-radius:var(--radius);
+    padding:20px; box-shadow:var(--shadow); margin-top:16px;
+  }
+  .chart-card h3{ font-size:14px; margin:0 0 14px; font-weight:600; }
+  .chart-wrap{ position:relative; height:260px; }
+
+  /* ===== Tabs ===== */
+  .tabs{ display:flex; gap:4px; border-bottom:1px solid var(--line); margin-top:40px; }
+  .tab-btn{
+    background:none;border:none;border-bottom:2px solid transparent;
+    padding:10px 4px; margin-right:22px; font-size:14px; color:var(--ink-soft);
+    cursor:pointer; font-weight:500;
+  }
+  .tab-btn.active{ color:var(--ink); border-bottom-color:var(--ink); font-weight:600; }
+  .tab-panel{ display:none; padding-top:20px; }
+  .tab-panel.active{ display:block; }
+
+  .filter-row{ display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px; align-items:center; }
+  .filter-row .grow{ flex:1; min-width:160px; }
+  input[type=text].search{
+    width:100%; padding:9px 12px; border-radius:10px; border:1px solid var(--line);
+    background:var(--paper-card); font-size:13px; color:var(--ink);
+  }
+
+  /* ===== Staff table ===== */
+  table.staff-table{ width:100%; border-collapse:collapse; background:var(--paper-card); border:1px solid var(--line); border-radius:var(--radius); overflow:hidden; }
+  table.staff-table th, table.staff-table td{ padding:10px 12px; text-align:left; font-size:13px; border-bottom:1px solid var(--line-soft); }
+  table.staff-table th{
+    font-family:'Be Vietnam Pro',sans-serif; font-variant-numeric:tabular-nums; font-size:10.5px; letter-spacing:0.08em; text-transform:uppercase;
+    color:var(--ink-faint); font-weight:500; cursor:pointer; user-select:none; white-space:nowrap;
+  }
+  table.staff-table th:hover{ color:var(--ink); }
+  table.staff-table tbody tr:hover{ background:#F3F5EE; }
+  table.staff-table tbody tr:last-child td{ border-bottom:none; }
+  .staff-link{
+    background:none; border:none; padding:0; margin:0; cursor:pointer;
+    font-family:'Be Vietnam Pro',sans-serif; font-size:13px; font-weight:600; color:var(--ink);
+    text-decoration:underline; text-decoration-color:var(--line); text-decoration-thickness:1.5px;
+    text-underline-offset:3px; transition:text-decoration-color .15s ease, color .15s ease;
+  }
+  .staff-link:hover{ color:var(--slate); text-decoration-color:var(--slate); }
+  td.num-cell, th.num-cell{ text-align:center; font-family:'Be Vietnam Pro',sans-serif; font-variant-numeric:tabular-nums; }
+  .kpi-cell{ display:flex; align-items:center; gap:8px; }
+  .kpi-bar{ width:70px; height:6px; border-radius:4px; background:var(--line-soft); overflow:hidden; }
+  .kpi-bar > span{ display:block; height:100%; border-radius:4px; }
+  .kpi-pct{ font-family:'Be Vietnam Pro',sans-serif; font-variant-numeric:tabular-nums; font-size:12.5px; font-weight:600; width:42px; text-align:right; }
+  .grade-good{ background:var(--green); }
+  .grade-mid{ background:var(--gold); }
+  .grade-low{ background:var(--red); }
+
+  /* ===== Review queue ===== */
+  .queue-list{ display:flex; flex-direction:column; gap:10px; }
+  .case-card{
+    background:var(--paper-card); border:1px solid var(--line); border-radius:var(--radius);
+    padding:16px 18px; box-shadow:var(--shadow);
+  }
+  .case-top{ display:flex; justify-content:space-between; gap:14px; flex-wrap:wrap; align-items:flex-start; }
+  .case-who{ font-size:14.5px; font-weight:600; }
+  .case-meta{ font-family:'Be Vietnam Pro',sans-serif; font-variant-numeric:tabular-nums; font-size:11.5px; color:var(--ink-soft); margin-top:3px; }
+  .case-meta span{ margin-right:12px; }
+  .case-explanation{
+    margin:12px 0; padding:10px 12px; background:var(--paper); border-radius:10px;
+    font-size:13px; line-height:1.55; color:var(--ink);
+    border-left:3px solid var(--line);
+  }
+  .case-explanation.empty{ color:var(--ink-faint); font-style:italic; border-left-color:var(--red); }
+  .case-actions{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:10px; }
+  .case-note{
+    width:100%; margin-top:10px; padding:8px 10px; border-radius:10px; border:1px solid var(--line);
+    font-size:12.5px; font-family:'Be Vietnam Pro',sans-serif; resize:vertical; min-height:36px; background:#fff;
+  }
+
+  /* stamp badges */
+  .stamp{
+    display:inline-flex; align-items:center; gap:5px;
+    padding:4px 11px; border-radius:20px; font-size:11px; font-weight:700;
+    letter-spacing:0.05em; text-transform:uppercase; font-family:'Be Vietnam Pro',sans-serif; font-variant-numeric:tabular-nums;
+    border:1.5px solid transparent;
+  }
+  .stamp.pending{ color:var(--gold); border-color:var(--gold); background:var(--gold-bg); }
+  .stamp.approved{ color:var(--green); border-color:var(--green); background:var(--green-bg); transform:rotate(-3deg); }
+  .stamp.rejected{ color:var(--red); border-color:var(--red); background:var(--red-bg); transform:rotate(-3deg); }
+  .stamp.nosubmit{ color:var(--ink-faint); border-color:var(--line); background:transparent; }
+
+  .btn.approve{ border-color:var(--green); color:var(--green); }
+  .btn.approve:hover{ background:var(--green-bg); }
+  .btn.reject{ border-color:var(--red); color:var(--red); }
+  .btn.reject:hover{ background:var(--red-bg); }
+  .btn.reset-case{ border-color:var(--line); color:var(--ink-faint); font-size:12px; padding:8px 10px;}
+
+  .queue-empty{ text-align:center; padding:50px 20px; color:var(--ink-soft); font-size:14px; }
+
+  /* trend panel */
+  .trend-note{ font-size:12.5px; color:var(--ink-soft); margin-bottom:14px; }
+
+  /* ===== Staff detail modal ===== */
+  .modal-backdrop{
+    position:fixed; inset:0; background:rgba(27,42,34,0.45);
+    display:none; align-items:flex-start; justify-content:center;
+    padding:40px 20px; z-index:90; overflow-y:auto;
+  }
+  .modal-backdrop.show{ display:flex; }
+  .modal-panel{
+    background:var(--paper-card); border-radius:16px; max-width:960px; width:100%;
+    box-shadow:0 20px 60px rgba(27,42,34,0.25); animation:modalIn .18s ease;
+  }
+  @keyframes modalIn{ from{ opacity:0; transform:translateY(8px) scale(.98);} to{ opacity:1; transform:translateY(0) scale(1);} }
+  .modal-head{
+    display:flex; justify-content:space-between; align-items:flex-start; gap:14px;
+    padding:22px 24px 18px; border-bottom:1px solid var(--line);
+  }
+  .modal-head h3{ font-size:20px; margin:0 0 4px; }
+  .modal-head .sub{ font-size:12.5px; color:var(--ink-soft); }
+  .modal-close{
+    background:var(--paper); border:1px solid var(--line); border-radius:50%;
+    width:32px; height:32px; display:flex; align-items:center; justify-content:center;
+    cursor:pointer; flex-shrink:0; color:var(--ink-soft);
+  }
+  .modal-close:hover{ background:var(--line-soft); color:var(--ink); }
+  .modal-close svg{ width:15px; height:15px; }
+  .modal-body{ padding:8px 24px 24px; max-height:70vh; overflow-y:auto; }
+  .modal-goto{
+    margin:2px 24px 18px; font-size:12.5px; color:var(--slate); background:var(--slate-bg);
+    border:none; border-radius:10px; padding:9px 14px; cursor:pointer; display:inline-flex; gap:6px; align-items:center;
+  }
+  .modal-goto:hover{ filter:brightness(0.95); }
+  .month-block{ margin-top:22px; }
+  .month-block:first-child{ margin-top:14px; }
+  .month-block-head{ display:flex; align-items:baseline; justify-content:space-between; margin-bottom:8px; }
+  .month-block-head h4{ font-family:'Be Vietnam Pro',sans-serif; font-size:14.5px; margin:0; font-weight:600; }
+  .month-block-head .stat{ font-size:12px; color:var(--ink-soft); font-family:'Be Vietnam Pro',sans-serif; font-variant-numeric:tabular-nums; }
+  table.hv-table{ width:100%; border-collapse:collapse; min-width:640px; }
+  table.hv-table th{
+    text-align:left; font-size:10px; letter-spacing:0.06em; text-transform:uppercase; color:var(--ink-faint);
+    font-family:'Be Vietnam Pro',sans-serif; font-variant-numeric:tabular-nums; font-weight:500; padding:6px 8px; border-bottom:1px solid var(--line-soft);
+    white-space:nowrap;
+  }
+  table.hv-table td{ padding:7px 8px; font-size:12.5px; border-bottom:1px solid var(--line-soft); white-space:nowrap; }
+  table.hv-table td.wrap{ white-space:normal; }
+  table.hv-table tbody tr:hover{ background:var(--paper); }
+  .hv-table-scroll{ overflow-x:auto; border-radius:8px; }
+  .grade-text{ font-weight:600; font-size:12px; }
+  .grade-text.A{ color:var(--green); }
+  .grade-text.B{ color:var(--slate); }
+  .grade-text.C{ color:var(--gold); }
+  .grade-text.D{ color:var(--red); }
+  .grade-text.dash{ color:var(--ink-faint); font-weight:400; }
+  .grade-badge{
+    display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%;
+    font-family:'Be Vietnam Pro',sans-serif; font-variant-numeric:tabular-nums; font-size:11px; font-weight:700; border:1.5px solid;
+  }
+  .grade-badge.A{ color:var(--green); border-color:var(--green); background:var(--green-bg); }
+  .grade-badge.B{ color:var(--slate); border-color:var(--slate); background:var(--slate-bg); }
+  .grade-badge.C{ color:var(--gold); border-color:var(--gold); background:var(--gold-bg); }
+  .grade-badge.D, .grade-badge.U{ color:var(--red); border-color:var(--red); background:var(--red-bg); }
+  .modal-empty{ text-align:center; padding:36px 10px; color:var(--ink-faint); font-size:13px; }
+
+  footer{ max-width:1180px; margin:50px auto 30px; padding:0 28px; font-size:11.5px; color:var(--ink-faint); line-height:1.6; }
+  footer .line{ border:none; border-top:1px solid var(--line); margin-bottom:16px; }
+
+  .toast{
+    position:fixed; bottom:22px; left:50%; transform:translateX(-50%);
+    background:var(--ink); color:var(--paper-card); padding:10px 18px; border-radius:10px;
+    font-size:13px; box-shadow:var(--shadow); z-index:99; opacity:0; pointer-events:none;
+    transition:opacity .2s ease, transform .2s ease;
+  }
+  .toast.show{ opacity:1; transform:translateX(-50%) translateY(-6px); }
+
+  #dashboard{ display:none; }
+
+  /* ===== Role gate ===== */
+  #roleGate{
+    min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px;
+  }
+  .role-card{
+    max-width:440px; width:100%; text-align:center;
+    background:var(--paper-card); border:1px solid var(--line); border-radius:20px;
+    padding:44px 32px; box-shadow:var(--shadow);
+  }
+  .role-card h2{ font-size:22px; margin:0 0 8px; }
+  .role-card p{ font-size:13.5px; color:var(--ink-soft); margin:0 0 26px; }
+  .role-btns{ display:flex; flex-direction:column; gap:10px; }
+  .role-btn{
+    display:flex; flex-direction:column; align-items:flex-start; gap:3px;
+    text-align:left; padding:16px 18px; border-radius:14px; border:1.5px solid var(--line);
+    background:var(--paper); cursor:pointer; transition:border-color .15s ease, transform .1s ease;
+  }
+  .role-btn:hover{ border-color:var(--ink); transform:translateY(-1px); }
+  .role-btn strong{ font-size:15px; font-family:'Be Vietnam Pro',sans-serif; }
+  .role-btn span{ font-size:12.5px; color:var(--ink-soft); }
+
+  /* ===== Nhân sự (staff self-service) view ===== */
+  .ns-offline{
+    background:var(--red-bg); color:var(--red); border-radius:10px; padding:12px 16px;
+    font-size:13px; margin-bottom:20px;
+  }
+  .ns-picker{
+    max-width:420px; margin:60px auto; text-align:center;
+    background:var(--paper-card); border:1px solid var(--line); border-radius:16px; padding:36px 28px;
+    box-shadow:var(--shadow);
+  }
+  .ns-picker h2{ font-size:20px; margin:6px 0 6px; }
+  .ns-sub{ font-size:13px; color:var(--ink-soft); margin:0 0 18px; }
+  .ns-select{
+    width:100%; padding:11px 14px; border-radius:10px; border:1px solid var(--line);
+    background:var(--paper); font-size:14px; color:var(--ink); font-family:'Be Vietnam Pro',sans-serif;
+  }
+  .ns-picker-hint{ font-size:11.5px; color:var(--ink-faint); margin-top:16px; line-height:1.5; }
+  .ns-case-empty{ text-align:center; padding:30px; color:var(--ink-faint); font-size:13px; }
+  .ns-textarea{
+    width:100%; min-height:70px; margin-top:10px; padding:10px 12px; border-radius:10px;
+    border:1px solid var(--line); font-size:13px; font-family:'Be Vietnam Pro',sans-serif; resize:vertical; background:#fff;
+  }
+  .ns-submit-row{ display:flex; justify-content:flex-end; gap:8px; margin-top:10px; align-items:center; }
+  .ns-saved-hint{ font-size:11.5px; color:var(--ink-faint); margin-right:auto; }
+
+  @media (max-width:640px){
+    header.topbar{ padding:14px 16px; }
+    main{ padding:18px; }
+    .brand h1{ font-size:17px; }
+    .case-top{ flex-direction:column; }
+    .modal-backdrop{ padding:0; }
+    .modal-panel{ border-radius:0; min-height:100vh; }
+    .role-card{ padding:32px 22px; }
+    .ns-picker{ margin:30px auto; padding:28px 20px; }
+  }
+  @media (prefers-reduced-motion: reduce){
+    *{ transition:none !important; animation:none !important; }
+  }
+</style>
+</head>
+<body>
+
+<div id="roleGate">
+  <div class="role-card">
+    <div class="stamp-big" style="margin:0 auto 22px;">S</div>
+    <h2>Bạn đang truy cập với vai trò nào?</h2>
+    <p>Chọn vai trò để vào đúng giao diện. Có thể đổi lại bất kỳ lúc nào.</p>
+    <div class="role-btns">
+      <button class="role-btn" id="roleAdminBtn">
+        <strong>Admin</strong>
+        <span>Xem KPI toàn chi nhánh &amp; duyệt giải trình</span>
+      </button>
+      <button class="role-btn" id="roleStaffBtn">
+        <strong>Nhân sự</strong>
+        <span>Gửi giải trình cho case của mình</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<div id="adminApp" style="display:none;">
+<header class="topbar">
+
+  <div class="brand">
+    <div class="mark">S</div>
+    <div>
+      <h1>KPI Ledger</h1>
+      <div class="sub">Scots English — theo dõi &amp; duyệt giải trình</div>
+    </div>
+  </div>
+  <div class="header-actions">
+    <button class="btn ghost" id="switchRoleBtnAdmin" title="Đổi vai trò"><svg viewBox="0 0 20 20" fill="none"><path d="M4 4v4h4M16 16v-4h-4M4.5 12a6 6 0 0 1 10.6-3.5M15.5 8a6 6 0 0 1-10.6 3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    <select id="monthSelect" style="display:none;"></select>
+    <label class="btn primary" for="fileInput" id="uploadBtnLabel"><svg viewBox="0 0 20 20" fill="none"><path d="M10 13V4M10 4L6.5 7.5M10 4l3.5 3.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 14v1.5A1.5 1.5 0 0 0 5.5 17h9a1.5 1.5 0 0 0 1.5-1.5V14" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span id="uploadBtnText">Tải file KPI (.xlsx)</span></label>
+    <input type="file" id="fileInput" accept=".xlsx">
+    <button class="btn ghost" id="exportBtn" style="display:none;"><svg viewBox="0 0 20 20" fill="none"><path d="M10 3v9M10 12l-3-3M10 12l3-3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 14v1.5A1.5 1.5 0 0 0 5.5 17h9a1.5 1.5 0 0 0 1.5-1.5V14" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>Xuất CSV</button>
+  </div>
+</header>
+
+<main>
+
+  <div class="empty" id="emptyState">
+    <div class="stamp-big">S</div>
+    <h2>Chưa có dữ liệu</h2>
+    <p>Tải lên file KPI chi nhánh (bản export mới nhất từ SharePoint / Power Query). App sẽ đọc trực tiếp trong trình duyệt — không có gì được gửi lên máy chủ nào cả.</p>
+    <label class="btn primary" for="fileInput"><svg viewBox="0 0 20 20" fill="none"><path d="M10 13V4M10 4L6.5 7.5M10 4l3.5 3.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 14v1.5A1.5 1.5 0 0 0 5.5 17h9a1.5 1.5 0 0 0 1.5-1.5V14" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>Chọn file .xlsx</label>
+    <div class="hint">App đọc sheet "Data" (toàn bộ lịch sử điểm) và các sheet chi nhánh (để lấy nội dung giải trình đã viết). Quyết định duyệt/từ chối trong app được lưu riêng trên trình duyệt này — độc lập với file Excel gốc, không cần đăng nhập hay xin quyền SharePoint.</div>
+  </div>
+
+  <div id="dashboard">
+
+    <div class="section-label">
+      <div>
+        <div class="eyebrow" id="monthLabel">Tháng —</div>
+        <h2>Thống kê theo vùng</h2>
+      </div>
+    </div>
+    <div class="branch-grid" id="regionGrid"></div>
+
+    <div class="section-label">
+      <div>
+        <div class="eyebrow">Chi tiết</div>
+        <h2>Tổng quan chi nhánh</h2>
+      </div>
+    </div>
+    <div class="branch-grid" id="branchGrid"></div>
+
+    <div class="chart-card">
+      <h3>So sánh KPI giữa các chi nhánh</h3>
+      <div class="chart-wrap"><canvas id="branchChart"></canvas></div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="ranking">Bảng thống kê</button>
+      <button class="tab-btn" data-tab="queue">Hàng đợi duyệt giải trình</button>
+      <button class="tab-btn" data-tab="trend">Xu hướng theo tháng</button>
+    </div>
+
+    <div class="tab-panel active" id="panel-ranking">
+      <div class="filter-row">
+        <input type="text" class="search grow" id="staffSearch" placeholder="Tìm theo tên nhân sự...">
+      </div>
+      <table class="staff-table" id="staffTable">
+        <thead>
+          <tr>
+            <th data-sort="name">Nhân sự</th>
+            <th data-sort="branch">Chi nhánh</th>
+            <th class="num-cell" data-sort="A">A</th>
+            <th class="num-cell" data-sort="B">B</th>
+            <th class="num-cell" data-sort="C">C</th>
+            <th class="num-cell" data-sort="D">D</th>
+            <th class="num-cell" data-sort="unclassified">Chưa xếp loại</th>
+            <th class="num-cell" data-sort="total">Tổng</th>
+            <th data-sort="kpi">KPI (A+B)</th>
+          </tr>
+        </thead>
+        <tbody id="staffTableBody"></tbody>
+      </table>
+    </div>
+
+    <div class="tab-panel" id="panel-queue">
+      <div class="filter-row">
+        <button class="btn primary" id="syncFirestoreBtn"><svg viewBox="0 0 20 20" fill="none" style="width:14px;height:14px;"><path d="M10 3v9M10 12l-3-3M10 12l3-3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 14v1.5A1.5 1.5 0 0 0 5.5 17h9a1.5 1.5 0 0 0 1.5-1.5V14" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>Đồng bộ giải trình lên Firestore</button>
+      </div>
+      <div class="filter-row">
+        <select id="queueBranchFilter"></select>
+        <select id="queueStatusFilter">
+          <option value="all">Tất cả trạng thái</option>
+          <option value="pending">Chờ duyệt (đã giải trình)</option>
+          <option value="nosubmit">Chưa giải trình</option>
+          <option value="approved">Đã duyệt</option>
+          <option value="rejected">Từ chối</option>
+        </select>
+        <input type="text" class="search grow" id="queueSearch" placeholder="Tìm theo tên học viên / nhân sự...">
+      </div>
+      <div class="queue-list" id="queueList"></div>
+    </div>
+
+    <div class="tab-panel" id="panel-trend">
+      <div class="trend-note">Dữ liệu lấy từ toàn bộ lịch sử có trong sheet "Data" của file vừa tải lên — không cần tải nhiều file để xem xu hướng.</div>
+      <div class="chart-card" style="margin-top:0;">
+        <h3>KPI trung bình theo tháng, theo chi nhánh</h3>
+        <div class="chart-wrap"><canvas id="trendChart"></canvas></div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<footer>
+  <hr class="line">
+</footer>
+</div><!-- /adminApp -->
+
+<div id="nsApp" style="display:none;">
+  <header class="topbar">
+    <div class="brand">
+      <div class="mark">S</div>
+      <div>
+        <h1>Giải trình của tôi</h1>
+        <div class="sub">Scots English — gửi giải trình case chưa xếp loại</div>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button class="btn ghost" id="switchRoleBtnStaff" title="Đổi vai trò"><svg viewBox="0 0 20 20" fill="none"><path d="M4 4v4h4M16 16v-4h-4M4.5 12a6 6 0 0 1 10.6-3.5M15.5 8a6 6 0 0 1-10.6 3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    </div>
+  </header>
+
+  <main>
+    <div id="nsOffline" class="ns-offline" style="display:none;">
+      Chưa kết nối được tới máy chủ dữ liệu dùng chung. Hãy kiểm tra mạng và tải lại trang. Nếu vẫn lỗi, báo cho quản trị viên.
+    </div>
+
+    <div id="nsPicker" class="ns-picker">
+      <div class="eyebrow">Bước 1</div>
+      <h2>Bạn là ai?</h2>
+      <p class="ns-sub">Chọn đúng tên của bạn để xem case cần giải trình.</p>
+      <select id="nsNameSelect" class="ns-select">
+        <option value="">— Chọn tên —</option>
+      </select>
+      <div class="ns-picker-hint">Không thấy tên bạn trong danh sách? Nghĩa là hiện chưa có case nào cần giải trình gán cho bạn, hoặc admin chưa đồng bộ dữ liệu tháng này.</div>
+    </div>
+
+    <div id="nsCases" style="display:none;">
+      <div class="section-label">
+        <div>
+          <div class="eyebrow" id="nsWhoLabel">—</div>
+          <h2>Case cần giải trình</h2>
+        </div>
+        <button class="btn ghost" id="nsChangeNameBtn">Đổi tên</button>
+      </div>
+      <div class="queue-list" id="nsPendingList"></div>
+
+      <div class="section-label" style="margin-top:40px;">
+        <div><h2 style="font-size:16px;">Lịch sử đã xử lý</h2></div>
+      </div>
+      <div class="queue-list" id="nsHistoryList"></div>
+    </div>
+  </main>
+</div><!-- /nsApp -->
+
+<div class="modal-backdrop" id="staffModal">
+  <div class="modal-panel">
+    <div class="modal-head">
+      <div>
+        <h3 id="staffModalName">—</h3>
+        <div class="sub" id="staffModalSub">—</div>
+      </div>
+      <button class="modal-close" id="staffModalClose" aria-label="Đóng"><svg viewBox="0 0 20 20" fill="none"><path d="M5 5L15 15M15 5L5 15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+    </div>
+    <button class="modal-goto" id="staffModalGotoQueue"><svg viewBox="0 0 20 20" fill="none" style="width:14px;height:14px;"><path d="M4 10h10M14 10l-3.5-3.5M14 10l-3.5 3.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Xem case cần duyệt của nhân sự này</button>
+    <div class="modal-body" id="staffModalBody"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---------- helpers ----------
+  function norm(s){
+    if(s===null||s===undefined) return '';
+    return String(s).replace(/\u00A0/g,' ').replace(/\s+/g,' ').trim();
+  }
+  function dateKey(v){
+    if(v instanceof Date && !isNaN(v)) {
+      return v.getFullYear()+'-'+String(v.getMonth()+1).padStart(2,'0')+'-'+String(v.getDate()).padStart(2,'0');
+    }
+    return norm(v);
+  }
+  function isUnclassified(cls){
+    return cls===null||cls===undefined||norm(cls)===''||norm(cls)==='Không xếp loại';
+  }
+  function fmtPct(x){
+    if(x===null||x===undefined||isNaN(x)) return '—';
+    return Math.round(x*100)+'%';
+  }
+  function fmtDate(v){
+    if(v instanceof Date && !isNaN(v)){
+      return String(v.getDate()).padStart(2,'0')+'/'+String(v.getMonth()+1).padStart(2,'0')+'/'+v.getFullYear();
+    }
+    return v ? String(v) : '—';
+  }
+  function monthLabelFromFile(name){
+    if(!name) return name;
+    var m = String(name).match(/T(\d+)/i);
+    if(m) return 'Tháng '+parseInt(m[1],10);
+    return name;
+  }
+  function monthSortKey(name){
+    var m = String(name||'').match(/T(\d+)/i);
+    return m ? parseInt(m[1],10) : 999;
+  }
+  function toast(msg){
+    var t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(toast._t);
+    toast._t = setTimeout(function(){ t.classList.remove('show'); }, 2600);
+  }
+  function escapeHtml(s){
+    return String(s==null?'':s).replace(/[&<>"']/g, function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
+  }
+
+  var SYSTEM_SHEETS = ['Data','Sample file','Transform Sample file','Export','Parameter','Query'];
+
+  var REGIONS = [
+    {name:'Vùng 7', branches:['Đà Nẵng','Đà Nẵng 2','Phan Văn Trị']},
+    {name:'Vùng 8', branches:['Celadon Tân Phú','Phạm Văn Chiêu','Vinhomes Grand Park']}
+  ];
+  function regionBranchFull(name){ return 'Scots English '+name; }
+  function regionOf(branchFull){
+    var short = branchFull.replace('Scots English ','');
+    for(var i=0;i<REGIONS.length;i++){
+      if(REGIONS[i].branches.indexOf(short)!==-1) return REGIONS[i].name;
+    }
+    return null;
+  }
+
+  // ---------- local storage ----------
+  var DECISIONS_KEY = 'kpiLedger.decisions.v1';
+  function loadDecisions(){
+    try{
+      var raw = localStorage.getItem(DECISIONS_KEY);
+      return raw ? JSON.parse(raw) : {};
+    }catch(e){ return {}; }
+  }
+  function saveDecisions(d){
+    try{ localStorage.setItem(DECISIONS_KEY, JSON.stringify(d)); }catch(e){
+      toast('Không thể lưu vào bộ nhớ trình duyệt (có thể đã đầy).');
+    }
+  }
+  var decisions = loadDecisions();
+
+  // ---------- Firestore-backed case sync ----------
+  // firestoreCases holds the live, shared view of each case (giải trình +
+  // duyệt status) once Firebase is connected. When present, it takes
+  // priority over the Excel-only / localStorage-only data so admin and
+  // nhân sự see the same up-to-date picture.
+  var firestoreCases = {};
+  var firestoreListenerStarted = false;
+
+  function sanitizeCaseId(rowKey){
+    return String(rowKey).replace(/[\/\s]+/g,'_').slice(0,900);
+  }
+
+  function effectiveCase(rowKey){
+    var fsCase = firestoreCases[sanitizeCaseId(rowKey)];
+    if(fsCase){
+      return {
+        giaiTrinh: fsCase.giaiTrinh||'', status: fsCase.status||null, note: fsCase.note||'',
+        submittedBy: fsCase.submittedBy||'', fromFirestore:true
+      };
+    }
+    var expl = state.explanationMap[rowKey];
+    var decision = decisions[rowKey];
+    return {
+      giaiTrinh: expl?(expl.giaiTrinh||''):'', status: decision?decision.status:null, note: decision?(decision.note||''):'',
+      submittedBy:'', fromFirestore:false
+    };
+  }
+
+  function startFirestoreListener(){
+    if(firestoreListenerStarted) return;
+    if(!window.FB || !window.FB.enabled) return;
+    firestoreListenerStarted = true;
+    try{
+      window.FB.onSnapshot(window.FB.casesCol, function(snap){
+        var next = {};
+        snap.forEach(function(docSnap){ next[docSnap.id] = docSnap.data(); });
+        firestoreCases = next;
+        document.getElementById('nsOffline').style.display = 'none';
+        // Re-render whichever view is currently visible.
+        if(document.getElementById('adminApp').style.display!=='none' && state.masterRows.length){
+          var agg = aggregate(state.currentMonth, state.branchNames);
+          renderRegionGrid(agg); renderBranchGrid(agg); renderStaffTable(agg); renderQueue();
+        }
+        if(document.getElementById('nsApp').style.display!=='none'){
+          renderNsNamePicker();
+          if(state.nsSelectedName) renderNsCases();
+        }
+      }, function(err){
+        console.error('Firestore listener error:', err);
+        document.getElementById('nsOffline').style.display='block';
+      });
+    }catch(err){
+      console.error('Could not start Firestore listener:', err);
+    }
+  }
+  window.addEventListener('fb-ready', startFirestoreListener);
+  window.addEventListener('fb-error', function(){
+    document.getElementById('nsOffline').style.display='block';
+  });
+  // In case fb-ready already fired before this script finished loading.
+  if(window.FB && window.FB.ready) startFirestoreListener();
+
+  // ---------- state ----------
+  var state = {
+    masterRows: [],
+    explanationMap: {},
+    branchNames: [],
+    months: [],
+    currentMonth: null,
+    activeBranches: null, // null = all
+    sortCol: 'kpi', sortDir: 'desc',
+    nsSelectedName: null
+  };
+
+  var branchChart=null, trendChart=null;
+
+  // ---------- parsing ----------
+  function parseWorkbook(wb){
+    var dataWs = wb.Sheets['Data'];
+    if(!dataWs) throw new Error('Không tìm thấy sheet "Data" trong file. Hãy kiểm tra lại file export.');
+    var raw = XLSX.utils.sheet_to_json(dataWs, {defval:null, raw:true});
+    var masterRows = [];
+    raw.forEach(function(r, idx){
+      var tenCN = norm(r['Tên CN'] || r['Tên trung tâm']);
+      if(!tenCN) return;
+      var maHocVien = r['Mã học viên'];
+      var maLop = r['Mã lớp'];
+      var ngayKT = r['Ngày kiểm tra'];
+      var sourceFile = r['Source.Name'];
+      var rowKey = [maHocVien, maLop, dateKey(ngayKT), sourceFile].join('|');
+      masterRows.push({
+        rowKey: rowKey,
+        sourceFile: sourceFile,
+        ngayKiemTra: ngayKT,
+        tenTrungTam: tenCN,
+        maLop: maLop,
+        maHocVien: maHocVien,
+        tenHocVien: r['Tên học viên'],
+        trinhDo: r['Trình độ'],
+        loaiBaiThi: r['Loại bài thi'],
+        xepLoaiSpeaking: r['Xếp loại Speaking'],
+        xepLoaiWritten: r['Xếp loại Written'],
+        xepLoaiTong: r['Xếp loại tổng'],
+        af: norm(r['AF']) || '(Chưa gán AF)',
+        giaoVien: r['Giáo viên']
+      });
+    });
+
+    // branch sheets -> explanation map
+    var explanationMap = {};
+    var branchNames = [];
+    wb.SheetNames.forEach(function(sheetName){
+      if(SYSTEM_SHEETS.indexOf(sheetName) !== -1) return;
+      var ws = wb.Sheets[sheetName];
+      if(!ws) return;
+      var rows = XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:null});
+      var headerRowIdx=-1, headerColIdx=-1;
+      for(var r=0;r<rows.length;r++){
+        var row = rows[r];
+        if(!row) continue;
+        var idx = row.indexOf('Source.Name');
+        if(idx!==-1){ headerRowIdx=r; headerColIdx=idx; break; }
+      }
+      if(headerRowIdx===-1) return; // not a branch/explanation sheet
+      var headerRow = rows[headerRowIdx];
+      var colMap = {};
+      var blanks=0;
+      for(var c=headerColIdx;c<headerRow.length;c++){
+        var label = headerRow[c];
+        if(label===null||label===undefined||label===''){
+          blanks++;
+          if(blanks>3) break;
+          continue;
+        }
+        blanks=0;
+        colMap[label]=c;
+      }
+      if(colMap['Tên học viên']===undefined) return;
+      branchNames.push(sheetName);
+      for(var rr=headerRowIdx+1; rr<rows.length; rr++){
+        var drow = rows[rr];
+        if(!drow) continue;
+        var nameVal = drow[colMap['Tên học viên']];
+        if(!nameVal) continue;
+        var mhv = colMap['Mã học viên']!==undefined ? drow[colMap['Mã học viên']] : null;
+        var mlop = colMap['Mã lớp']!==undefined ? drow[colMap['Mã lớp']] : null;
+        var ngay = colMap['Ngày kiểm tra']!==undefined ? drow[colMap['Ngày kiểm tra']] : null;
+        var src = colMap['Source.Name']!==undefined ? drow[colMap['Source.Name']] : null;
+        var key = [mhv, mlop, dateKey(ngay), src].join('|');
+        explanationMap[key] = {
+          giaiTrinh: colMap['Giải trình']!==undefined ? (drow[colMap['Giải trình']]||'') : '',
+          approveInFile: colMap['Approve']!==undefined ? !!drow[colMap['Approve']] : false
+        };
+      }
+    });
+
+    var monthsSet = {};
+    masterRows.forEach(function(r){ if(r.sourceFile) monthsSet[r.sourceFile]=true; });
+    var months = Object.keys(monthsSet).sort(function(a,b){ return monthSortKey(a)-monthSortKey(b); });
+
+    // Include branches that are configured in REGIONS and have real data in
+    // the "Data" sheet, even if they don't (yet) have their own explanation
+    // sheet/tab in this file (e.g. a newly-added branch).
+    var dataBranchSet = {};
+    masterRows.forEach(function(r){ dataBranchSet[r.tenTrungTam]=true; });
+    REGIONS.forEach(function(reg){
+      reg.branches.forEach(function(b){
+        var full = regionBranchFull(b);
+        if(dataBranchSet[full] && branchNames.indexOf(full)===-1) branchNames.push(full);
+      });
+    });
+    // Sort: branches with a configured region first (grouped, region order),
+    // then any other detected branch alphabetically.
+    var regionOrder = {};
+    REGIONS.forEach(function(reg, ri){
+      reg.branches.forEach(function(b, bi){ regionOrder[regionBranchFull(b)] = ri*100+bi; });
+    });
+    branchNames.sort(function(a,b){
+      var ra = regionOrder[a]!==undefined ? regionOrder[a] : 9999;
+      var rb = regionOrder[b]!==undefined ? regionOrder[b] : 9999;
+      if(ra!==rb) return ra-rb;
+      return a.localeCompare(b);
+    });
+
+    return {masterRows:masterRows, explanationMap:explanationMap, branchNames:branchNames, months:months};
+  }
+
+  // ---------- aggregation ----------
+  function aggregate(month, branchList){
+    var result = {};
+    branchList.forEach(function(b){
+      result[b] = {staff:{}, totals:{A:0,B:0,C:0,D:0,unclassified:0,total:0,kpi:null}};
+    });
+    state.masterRows.forEach(function(r){
+      if(month && r.sourceFile!==month) return;
+      if(branchList.indexOf(r.tenTrungTam)===-1) return;
+      var bucket = result[r.tenTrungTam];
+      var af = r.af;
+      if(!bucket.staff[af]){
+        bucket.staff[af] = {A:0,B:0,C:0,D:0,unclassified:0,total:0,kpi:null,pending:0,nosubmit:0,approvedCnt:0,rejectedCnt:0};
+      }
+      var s = bucket.staff[af];
+      var cls = r.xepLoaiTong;
+      if(isUnclassified(cls)){
+        var eff = effectiveCase(r.rowKey);
+        if(eff.status==='approved'){
+          s.approvedCnt++;
+        } else {
+          s.unclassified++;
+          if(eff.status==='rejected') s.rejectedCnt++;
+          else if(eff.giaiTrinh) s.pending++;
+          else s.nosubmit++;
+        }
+      } else if(cls==='A'||cls==='B'||cls==='C'||cls==='D'){
+        s[cls]++;
+      }
+    });
+    Object.keys(result).forEach(function(b){
+      var bucket = result[b];
+      var tA=0,tB=0,tC=0,tD=0,tU=0;
+      Object.keys(bucket.staff).forEach(function(af){
+        var s = bucket.staff[af];
+        s.total = s.A+s.B+s.C+s.D+s.unclassified;
+        s.kpi = s.total>0 ? (s.A+s.B)/s.total : 1;
+        tA+=s.A; tB+=s.B; tC+=s.C; tD+=s.D; tU+=s.unclassified;
+      });
+      var tTotal = tA+tB+tC+tD+tU;
+      bucket.totals = {A:tA,B:tB,C:tC,D:tD,unclassified:tU,total:tTotal,kpi: tTotal>0 ? (tA+tB)/tTotal : 1};
+    });
+    return result;
+  }
+
+  function buildQueue(month, branchList){
+    var out = [];
+    state.masterRows.forEach(function(r){
+      if(month && r.sourceFile!==month) return;
+      if(branchList.indexOf(r.tenTrungTam)===-1) return;
+      if(!isUnclassified(r.xepLoaiTong)) return;
+      var eff = effectiveCase(r.rowKey);
+      out.push({
+        rowKey:r.rowKey, tenHocVien:r.tenHocVien, maHocVien:r.maHocVien, maLop:r.maLop,
+        ngayKiemTra:r.ngayKiemTra, tenTrungTam:r.tenTrungTam, af:r.af, loaiBaiThi:r.loaiBaiThi,
+        giaiTrinh: eff.giaiTrinh, status: eff.status, note: eff.note,
+        submittedBy: eff.submittedBy, synced: eff.fromFirestore
+      });
+    });
+    out.sort(function(a,b){
+      function rank(c){
+        if(c.status==='approved') return 3;
+        if(c.status==='rejected') return 2;
+        if(c.giaiTrinh) return 0;
+        return 1;
+      }
+      var ra=rank(a), rb=rank(b);
+      if(ra!==rb) return ra-rb;
+      return (a.tenTrungTam||'').localeCompare(b.tenTrungTam) || (a.af||'').localeCompare(b.af);
+    });
+    return out;
+  }
+
+  // ---------- rendering ----------
+  function kpiGradeClass(kpi){
+    if(kpi===null||kpi===undefined) return '';
+    if(kpi>=0.85) return 'grade-good';
+    if(kpi>=0.65) return 'grade-mid';
+    return 'grade-low';
+  }
+
+  function renderAll(){
+    document.getElementById('monthLabel').textContent = state.currentMonth ? monthLabelFromFile(state.currentMonth) : 'Tất cả các tháng';
+    var branchList = state.branchNames;
+    var agg = aggregate(state.currentMonth, branchList);
+    renderRegionGrid(agg);
+    renderBranchGrid(agg);
+    renderBranchChart(agg);
+    renderStaffTable(agg);
+    renderQueueFilters(branchList);
+    renderQueue();
+    renderTrend();
+  }
+
+  function aggregateRegion(agg, region){
+    var fullBranches = region.branches.map(regionBranchFull).filter(function(b){ return state.branchNames.indexOf(b)!==-1; });
+    var tA=0,tB=0,tC=0,tD=0,tU=0,tTotal=0,staffCount=0;
+    fullBranches.forEach(function(b){
+      var t = agg[b].totals;
+      tA+=t.A; tB+=t.B; tC+=t.C; tD+=t.D; tU+=t.unclassified; tTotal+=t.total;
+      staffCount += Object.keys(agg[b].staff).length;
+    });
+    var queue = buildQueue(state.currentMonth, fullBranches);
+    var pending = queue.filter(function(c){ return c.status!=='approved' && c.status!=='rejected'; }).length;
+    return {
+      branches: fullBranches, staffCount: staffCount, pending: pending,
+      totals: {A:tA,B:tB,C:tC,D:tD,unclassified:tU,total:tTotal, kpi: tTotal>0 ? (tA+tB)/tTotal : 1}
+    };
+  }
+
+  function renderRegionGrid(agg){
+    var wrap = document.getElementById('regionGrid');
+    if(!wrap) return;
+    wrap.innerHTML='';
+    REGIONS.forEach(function(region){
+      var r = aggregateRegion(agg, region);
+      if(!r.branches.length) return; // none of this region's branches present in the file
+      var isActive = state.activeBranches && r.branches.length===state.activeBranches.length &&
+        r.branches.every(function(b){ return state.activeBranches.indexOf(b)!==-1; });
+      var card = document.createElement('button');
+      card.className='branch-card region-card'+(isActive?' active':'');
+      card.innerHTML =
+        '<div class="branch-card-head">'+
+          '<div class="name">'+escapeHtml(region.name)+'</div>'+
+          '<div class="pending-badge'+(r.pending===0?' zero':'')+'">'+(r.pending===0?'Hoàn thành':r.pending+' chờ xử lý')+'</div>'+
+        '</div>'+
+        '<div class="kpi-num">'+fmtPct(r.totals.kpi)+'</div>'+
+        '<div class="meta"><span>'+r.branches.length+' chi nhánh</span><span>'+r.totals.total+' bài KT</span><span>'+r.staffCount+' nhân sự</span></div>';
+      card.addEventListener('click', function(){
+        if(isActive){ state.activeBranches = null; }
+        else { state.activeBranches = r.branches.slice(); }
+        renderAll();
+      });
+      wrap.appendChild(card);
+    });
+  }
+
+  function renderBranchGrid(agg){
+    var grid = document.getElementById('branchGrid');
+    grid.innerHTML='';
+    state.branchNames.forEach(function(b){
+      var t = agg[b].totals;
+      var queue = buildQueue(state.currentMonth, [b]);
+      var pendingCount = queue.filter(function(c){ return c.status!=='approved' && c.status!=='rejected'; }).length;
+      var card = document.createElement('button');
+      card.className='branch-card'+(state.activeBranches && state.activeBranches.indexOf(b)!==-1 ? ' active':'');
+      card.innerHTML =
+        '<div class="branch-card-head">'+
+          '<div class="name">'+escapeHtml(b.replace('Scots English ',''))+'</div>'+
+          '<div class="pending-badge'+(pendingCount===0?' zero':'')+'">'+(pendingCount===0?'Hoàn thành':pendingCount+' chờ xử lý')+'</div>'+
+        '</div>'+
+        '<div class="kpi-num">'+fmtPct(t.kpi)+'</div>'+
+        '<div class="meta"><span>'+t.total+' bài KT</span><span>'+Object.keys(agg[b].staff).length+' nhân sự</span></div>';
+      card.addEventListener('click', function(){
+        if(state.activeBranches && state.activeBranches.length===1 && state.activeBranches[0]===b){
+          state.activeBranches = null;
+        } else {
+          state.activeBranches = [b];
+        }
+        renderAll();
+      });
+      grid.appendChild(card);
+    });
+  }
+
+  function currentBranchScope(){
+    return state.activeBranches && state.activeBranches.length ? state.activeBranches : state.branchNames;
+  }
+
+  function renderBranchChart(agg){
+    var ctx = document.getElementById('branchChart');
+    var labels = state.branchNames.map(function(b){ return b.replace('Scots English ',''); });
+    var data = state.branchNames.map(function(b){ return agg[b].totals.kpi!==null ? Math.round(agg[b].totals.kpi*1000)/10 : 0; });
+    var colors = state.branchNames.map(function(b){
+      var k = agg[b].totals.kpi;
+      if(k===null) return '#C9CFC0';
+      if(k>=0.85) return '#3C7A54';
+      if(k>=0.65) return '#B8862E';
+      return '#A6432F';
+    });
+    if(branchChart) branchChart.destroy();
+    branchChart = new Chart(ctx, {
+      type:'bar',
+      data:{ labels:labels, datasets:[{ label:'KPI (%)', data:data, backgroundColor:colors, borderRadius:6, maxBarThickness:46 }] },
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:function(c){ return c.formattedValue+'%'; } } } },
+        scales:{ y:{ beginAtZero:true, max:100, grid:{color:'#DEE2D6'}, ticks:{callback:function(v){return v+'%';}} }, x:{ grid:{display:false} } }
+      }
+    });
+  }
+
+  function renderStaffTable(agg){
+    var body = document.getElementById('staffTableBody');
+    var searchVal = norm(document.getElementById('staffSearch').value).toLowerCase();
+    var rows = [];
+    state.branchNames.forEach(function(b){
+      Object.keys(agg[b].staff).forEach(function(af){
+        var s = agg[b].staff[af];
+        rows.push({name:af, branch:b, A:s.A,B:s.B,C:s.C,D:s.D,unclassified:s.unclassified,total:s.total,kpi:s.kpi});
+      });
+    });
+    if(searchVal){
+      rows = rows.filter(function(r){ return r.name.toLowerCase().indexOf(searchVal)!==-1; });
+    }
+    rows.sort(function(a,b){
+      var col = state.sortCol, dir = state.sortDir==='asc'?1:-1;
+      var av=a[col], bv=b[col];
+      if(col==='name'||col==='branch'){ av=(av||'').toLowerCase(); bv=(bv||'').toLowerCase(); }
+      if(av===null) av=-1; if(bv===null) bv=-1;
+      if(av<bv) return -1*dir; if(av>bv) return 1*dir; return 0;
+    });
+    body.innerHTML='';
+    if(!rows.length){
+      body.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:30px;color:var(--ink-faint);">Không có dữ liệu phù hợp.</td></tr>';
+      return;
+    }
+    rows.forEach(function(r){
+      var tr = document.createElement('tr');
+      var gradeClass = kpiGradeClass(r.kpi);
+      tr.innerHTML =
+        '<td><button class="staff-link" data-af="'+escapeHtml(r.name)+'" data-branch="'+escapeHtml(r.branch)+'">'+escapeHtml(r.name)+'</button></td>'+
+        '<td style="color:var(--ink-soft);font-size:12px;">'+escapeHtml(r.branch.replace('Scots English ',''))+'</td>'+
+        '<td class="num-cell">'+r.A+'</td>'+
+        '<td class="num-cell">'+r.B+'</td>'+
+        '<td class="num-cell">'+r.C+'</td>'+
+        '<td class="num-cell">'+r.D+'</td>'+
+        '<td class="num-cell">'+r.unclassified+'</td>'+
+        '<td class="num-cell">'+r.total+'</td>'+
+        '<td><div class="kpi-cell"><div class="kpi-bar"><span class="'+gradeClass+'" style="width:'+(r.kpi!==null?Math.round(r.kpi*100):0)+'%"></span></div><span class="kpi-pct">'+fmtPct(r.kpi)+'</span></div></td>';
+      tr.querySelector('.staff-link').addEventListener('click', function(){
+        openStaffDetail(r.name, r.branch);
+      });
+      body.appendChild(tr);
+    });
+  }
+
+  // ---------- staff detail modal ----------
+  var currentModalStaff = null; // {af, branch}
+
+  function statusStampSmall(status, giaiTrinh){
+    if(status==='approved') return '<span class="stamp approved" style="padding:2px 8px;font-size:9.5px;">Đã duyệt</span>';
+    if(status==='rejected') return '<span class="stamp rejected" style="padding:2px 8px;font-size:9.5px;">Từ chối</span>';
+    if(giaiTrinh) return '<span class="stamp pending" style="padding:2px 8px;font-size:9.5px;">Chờ duyệt</span>';
+    return '<span class="stamp nosubmit" style="padding:2px 8px;font-size:9.5px;">Chưa giải trình</span>';
+  }
+
+  function openStaffDetail(af, branch){
+    currentModalStaff = {af:af, branch:branch};
+    document.getElementById('staffModalName').textContent = af;
+    document.getElementById('staffModalSub').textContent = branch.replace('Scots English ','');
+
+    var rowsForStaff = state.masterRows.filter(function(r){
+      return r.af===af && r.tenTrungTam===branch;
+    });
+    var byMonth = {};
+    rowsForStaff.forEach(function(r){
+      var m = r.sourceFile || '(không rõ tháng)';
+      if(!byMonth[m]) byMonth[m]=[];
+      byMonth[m].push(r);
+    });
+    var months = Object.keys(byMonth).sort(function(a,b){ return monthSortKey(a)-monthSortKey(b); });
+
+    var body = document.getElementById('staffModalBody');
+    if(!months.length){
+      body.innerHTML = '<div class="modal-empty">Không tìm thấy học viên nào cho nhân sự này.</div>';
+    } else {
+      var html = '';
+      months.slice().reverse().forEach(function(m){
+        var list = byMonth[m].slice().sort(function(a,b){
+          var da = a.ngayKiemTra instanceof Date ? a.ngayKiemTra.getTime() : 0;
+          var db = b.ngayKiemTra instanceof Date ? b.ngayKiemTra.getTime() : 0;
+          return db-da;
+        });
+        var A=0,B=0,C=0,D=0,U=0,approvedOut=0;
+        list.forEach(function(r){
+          if(isUnclassified(r.xepLoaiTong)){
+            var eff = effectiveCase(r.rowKey);
+            if(eff.status==='approved') approvedOut++;
+            else U++;
+          }
+          else if(r.xepLoaiTong==='A') A++;
+          else if(r.xepLoaiTong==='B') B++;
+          else if(r.xepLoaiTong==='C') C++;
+          else if(r.xepLoaiTong==='D') D++;
+        });
+        var monthTotal = A+B+C+D+U;
+        var kpi = monthTotal>0 ? (A+B)/monthTotal : 1;
+        html += '<div class="month-block">'+
+          '<div class="month-block-head"><h4>'+escapeHtml(monthLabelFromFile(m))+'</h4>'+
+          '<span class="stat">'+monthTotal+' HV tính KPI &middot; KPI '+fmtPct(kpi)+'</span></div>'+
+          '<div class="hv-table-scroll"><table class="hv-table"><thead><tr>'+
+          '<th>Học viên</th><th>Trung tâm</th><th>Mã lớp</th><th>Mã HV</th><th>Ngày KT</th><th>Loại bài thi</th><th>Speaking</th><th>Written</th><th>Kết quả</th>'+
+          '</tr></thead><tbody>';
+        list.forEach(function(r){
+          var cls = r.xepLoaiTong;
+          var badge;
+          if(isUnclassified(cls)){
+            var eff = effectiveCase(r.rowKey);
+            badge = statusStampSmall(eff.status, eff.giaiTrinh);
+          } else {
+            badge = '<span class="grade-badge '+escapeHtml(cls)+'">'+escapeHtml(cls)+'</span>';
+          }
+          function gradeTextCell(v){
+            var vv = v ? norm(v) : '';
+            if(!vv) return '<span class="grade-text dash">—</span>';
+            var cssClass = (vv==='A'||vv==='B'||vv==='C'||vv==='D') ? vv : '';
+            return '<span class="grade-text '+cssClass+'">'+escapeHtml(vv)+'</span>';
+          }
+          html += '<tr><td class="wrap">'+escapeHtml(r.tenHocVien)+'</td>'+
+            '<td style="color:var(--ink-soft);font-size:11.5px;">'+escapeHtml(r.tenTrungTam.replace('Scots English ',''))+'</td>'+
+            '<td class="mono" style="font-size:11.5px;">'+escapeHtml(r.maLop)+'</td>'+
+            '<td class="mono" style="font-size:11.5px;">'+escapeHtml(r.maHocVien)+'</td>'+
+            '<td class="mono" style="font-size:11.5px;">'+fmtDate(r.ngayKiemTra)+'</td>'+
+            '<td style="color:var(--ink-soft);font-size:11.5px;">'+escapeHtml(r.loaiBaiThi||'—')+'</td>'+
+            '<td>'+gradeTextCell(r.xepLoaiSpeaking)+'</td>'+
+            '<td>'+gradeTextCell(r.xepLoaiWritten)+'</td>'+
+            '<td>'+badge+'</td></tr>';
+        });
+        html += '</tbody></table></div></div>';
+      });
+      body.innerHTML = html;
+    }
+    document.getElementById('staffModal').classList.add('show');
+  }
+
+  function closeStaffModal(){
+    document.getElementById('staffModal').classList.remove('show');
+    currentModalStaff = null;
+  }
+
+  function renderQueueFilters(branchList){
+    var sel = document.getElementById('queueBranchFilter');
+    var prev = sel.value;
+    sel.innerHTML = '<option value="all">Tất cả chi nhánh</option>' + branchList.map(function(b){
+      return '<option value="'+escapeHtml(b)+'">'+escapeHtml(b.replace('Scots English ',''))+'</option>';
+    }).join('');
+    if(state.activeBranches && state.activeBranches.length===1){
+      sel.value = state.activeBranches[0];
+    } else if(prev){
+      sel.value = prev;
+    }
+  }
+
+  function renderQueue(){
+    var list = document.getElementById('queueList');
+    var branchFilterVal = document.getElementById('queueBranchFilter').value || 'all';
+    var statusFilterVal = document.getElementById('queueStatusFilter').value || 'all';
+    var searchVal = norm(document.getElementById('queueSearch').value).toLowerCase();
+
+    var scopeBranches = branchFilterVal==='all' ? currentBranchScope() : [branchFilterVal];
+    var queue = buildQueue(state.currentMonth, scopeBranches);
+
+    if(statusFilterVal!=='all'){
+      queue = queue.filter(function(c){
+        if(statusFilterVal==='pending') return (!c.status) && c.giaiTrinh;
+        if(statusFilterVal==='nosubmit') return (!c.status) && !c.giaiTrinh;
+        if(statusFilterVal==='approved') return c.status==='approved';
+        if(statusFilterVal==='rejected') return c.status==='rejected';
+        return true;
+      });
+    }
+    if(searchVal){
+      queue = queue.filter(function(c){
+        return (c.tenHocVien||'').toLowerCase().indexOf(searchVal)!==-1 || (c.af||'').toLowerCase().indexOf(searchVal)!==-1;
+      });
+    }
+
+    list.innerHTML='';
+    if(!queue.length){
+      list.innerHTML = '<div class="queue-empty">Không có case nào khớp bộ lọc hiện tại.</div>';
+      return;
+    }
+
+    queue.forEach(function(c){
+      var card = document.createElement('div');
+      card.className='case-card';
+      var statusHtml;
+      if(c.status==='approved') statusHtml='<span class="stamp approved">Đã duyệt</span>';
+      else if(c.status==='rejected') statusHtml='<span class="stamp rejected">Từ chối</span>';
+      else if(c.giaiTrinh) statusHtml='<span class="stamp pending">Chờ duyệt</span>';
+      else statusHtml='<span class="stamp nosubmit">Chưa giải trình</span>';
+      if(c.synced) statusHtml += ' <span style="font-size:10px;color:var(--slate);">☁ đồng bộ</span>';
+
+      card.innerHTML =
+        '<div class="case-top">'+
+          '<div>'+
+            '<div class="case-who">'+escapeHtml(c.tenHocVien||'(không rõ tên)')+'</div>'+
+            '<div class="case-meta">'+
+              '<span>Mã HV: '+escapeHtml(c.maHocVien)+'</span>'+
+              '<span>Lớp: '+escapeHtml(c.maLop)+'</span>'+
+              '<span>Ngày KT: '+fmtDate(c.ngayKiemTra)+'</span>'+
+              '<span>'+escapeHtml((c.loaiBaiThi||'').toString())+'</span>'+
+            '</div>'+
+            '<div class="case-meta"><span>Chi nhánh: '+escapeHtml(c.tenTrungTam.replace('Scots English ',''))+'</span><span>AF: '+escapeHtml(c.af)+'</span>'+(c.submittedBy?'<span>Người gửi: '+escapeHtml(c.submittedBy)+'</span>':'')+'</div>'+
+          '</div>'+
+          '<div>'+statusHtml+'</div>'+
+        '</div>'+
+        '<div class="case-explanation'+(c.giaiTrinh?'':' empty')+'">'+(c.giaiTrinh ? escapeHtml(c.giaiTrinh) : 'Chi nhánh chưa gửi giải trình cho case này.')+'</div>'+
+        '<div class="case-actions">'+
+          '<button class="btn approve" data-action="approve"><svg viewBox="0 0 20 20" fill="none"><path d="M4 10.5L8 14.5L16 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Duyệt</button>'+
+          '<button class="btn reject" data-action="reject"><svg viewBox="0 0 20 20" fill="none"><path d="M5 5L15 15M15 5L5 15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>Từ chối</button>'+
+          (c.status ? '<button class="btn reset-case" data-action="reset"><svg viewBox="0 0 20 20" fill="none"><path d="M4 4v4h4M16 16v-4h-4M4.5 12a6 6 0 0 1 10.6-3.5M15.5 8a6 6 0 0 1-10.6 3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Đặt lại</button>' : '')+
+        '</div>'+
+        '<textarea class="case-note" placeholder="Ghi chú của người duyệt (tuỳ chọn)...">'+escapeHtml(c.note)+'</textarea>';
+
+      card.querySelector('[data-action="approve"]').addEventListener('click', function(){ setDecision(c.rowKey, 'approved', card); });
+      card.querySelector('[data-action="reject"]').addEventListener('click', function(){ setDecision(c.rowKey, 'rejected', card); });
+      var resetBtn = card.querySelector('[data-action="reset"]');
+      if(resetBtn) resetBtn.addEventListener('click', function(){ setDecision(c.rowKey, null, card); });
+      var noteEl = card.querySelector('.case-note');
+      noteEl.addEventListener('change', function(){
+        var d = decisions[c.rowKey] || {status:null, note:''};
+        d.note = noteEl.value;
+        decisions[c.rowKey] = d;
+        saveDecisions(decisions);
+        pushCaseUpdate(c.rowKey, {note: noteEl.value});
+      });
+
+      list.appendChild(card);
+    });
+  }
+
+  function pushCaseUpdate(rowKey, patch){
+    if(!window.FB || !window.FB.enabled || !window.FB.ready) return Promise.resolve(false);
+    try{
+      var id = sanitizeCaseId(rowKey);
+      var ref = window.FB.doc(window.FB.casesCol, id);
+      var payload = Object.assign({}, patch, {updatedAt: window.FB.serverTimestamp()});
+      return window.FB.setDoc(ref, payload, {merge:true}).then(function(){ return true; }).catch(function(err){
+        console.error('Firestore write failed:', err);
+        toast('Không đồng bộ được lên máy chủ (vẫn lưu tạm trên máy này).');
+        return false;
+      });
+    }catch(err){
+      console.error('Firestore write error:', err);
+      return Promise.resolve(false);
+    }
+  }
+
+  function setDecision(rowKey, status, cardEl){
+    var d = decisions[rowKey] || {status:null, note:''};
+    d.status = status;
+    d.decidedAt = new Date().toISOString();
+    d.seededFromFile = false;
+    decisions[rowKey] = d;
+    saveDecisions(decisions);
+    pushCaseUpdate(rowKey, {status: status, decidedAt: d.decidedAt, decidedBy: 'Admin'});
+    toast(status==='approved' ? 'Đã duyệt — case này được loại khỏi tổng số HV tính KPI.' : status==='rejected' ? 'Đã từ chối.' : 'Đã đặt lại trạng thái.');
+    var agg = aggregate(state.currentMonth, state.branchNames);
+    renderBranchGrid(agg);
+    renderBranchChart(agg);
+    renderStaffTable(agg);
+    renderQueue();
+    if(document.getElementById('panel-trend').classList.contains('active')) renderTrend();
+    if(currentModalStaff) openStaffDetail(currentModalStaff.af, currentModalStaff.branch);
+  }
+
+  function renderTrend(){
+    var ctx = document.getElementById('trendChart');
+    var months = state.months;
+    var datasets = state.branchNames.map(function(b, i){
+      var palette = ['#1B2A22','#B8862E','#3C7A54','#A6432F','#4A6670','#7C8A80'];
+      var data = months.map(function(m){
+        var agg = aggregate(m, [b]);
+        var k = agg[b].totals.kpi;
+        return k!==null ? Math.round(k*1000)/10 : null;
+      });
+      return {
+        label: b.replace('Scots English ',''),
+        data: data,
+        borderColor: palette[i % palette.length],
+        backgroundColor: palette[i % palette.length],
+        tension:0.25, spanGaps:true, pointRadius:3
+      };
+    });
+    if(trendChart) trendChart.destroy();
+    trendChart = new Chart(ctx, {
+      type:'line',
+      data:{ labels: months.map(monthLabelFromFile), datasets: datasets },
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{ position:'bottom', labels:{boxWidth:10, font:{size:11}} }, tooltip:{ callbacks:{ label:function(c){ return c.dataset.label+': '+c.formattedValue+'%'; } } } },
+        scales:{ y:{ beginAtZero:true, max:100, grid:{color:'#DEE2D6'}, ticks:{callback:function(v){return v+'%';}} }, x:{ grid:{display:false} } }
+      }
+    });
+  }
+
+  function exportCSV(){
+    var branchList = currentBranchScope();
+    var queue = buildQueue(state.currentMonth, branchList);
+    var header = ['Chi nhánh','Nhân sự (AF)','Tên học viên','Mã học viên','Mã lớp','Ngày kiểm tra','Loại bài thi','Giải trình','Trạng thái duyệt','Ghi chú','Thời điểm duyệt'];
+    var lines = [header.join(',')];
+    queue.forEach(function(c){
+      var d = decisions[c.rowKey] || {};
+      var statusText = c.status==='approved' ? 'Đã duyệt' : c.status==='rejected' ? 'Từ chối' : 'Chờ xử lý';
+      var row = [c.tenTrungTam, c.af, c.tenHocVien, c.maHocVien, c.maLop, fmtDate(c.ngayKiemTra), c.loaiBaiThi, c.giaiTrinh, statusText, c.note||'', d.decidedAt||''];
+      lines.push(row.map(function(v){
+        var s = String(v==null?'':v).replace(/"/g,'""');
+        return '"'+s+'"';
+      }).join(','));
+    });
+    var blob = new Blob(['\uFEFF'+lines.join('\r\n')], {type:'text/csv;charset=utf-8;'});
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'giai-trinh-'+(state.currentMonth ? monthLabelFromFile(state.currentMonth).replace(/\s+/g,'-') : 'tat-ca')+'.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  function syncQueueToFirestore(){
+    if(!window.FB || !window.FB.enabled || !window.FB.ready){
+      toast('Chưa kết nối được tới Firestore. Kiểm tra mạng rồi thử lại.');
+      return;
+    }
+    var rows = state.masterRows.filter(function(r){
+      return r.sourceFile===state.currentMonth && isUnclassified(r.xepLoaiTong) && state.branchNames.indexOf(r.tenTrungTam)!==-1;
+    });
+    if(!rows.length){ toast('Không có case nào cần đồng bộ cho tháng này.'); return; }
+    var btn = document.getElementById('syncFirestoreBtn');
+    var originalLabel = btn ? btn.innerHTML : '';
+    if(btn){ btn.disabled = true; btn.textContent = 'Đang đồng bộ…'; }
+    var created=0, updated=0, failed=0;
+    var tasks = rows.map(function(r){
+      var id = sanitizeCaseId(r.rowKey);
+      var ref = window.FB.doc(window.FB.casesCol, id);
+      return window.FB.getDoc(ref).then(function(snap){
+        var identity = {
+          branch: r.tenTrungTam, af: r.af, tenHocVien: r.tenHocVien||'',
+          maHocVien: r.maHocVien!=null?String(r.maHocVien):'', maLop: r.maLop||'',
+          ngayKiemTra: r.ngayKiemTra instanceof Date ? r.ngayKiemTra.toISOString() : String(r.ngayKiemTra||''),
+          sourceFile: r.sourceFile||'', loaiBaiThi: r.loaiBaiThi||'',
+          updatedAt: window.FB.serverTimestamp()
+        };
+        if(!snap.exists()){
+          var expl = state.explanationMap[r.rowKey];
+          identity.giaiTrinh = expl ? (expl.giaiTrinh||'') : '';
+          identity.status = null;
+          identity.note = '';
+          identity.submittedBy = '';
+          identity.createdAt = window.FB.serverTimestamp();
+          return window.FB.setDoc(ref, identity).then(function(){ created++; });
+        } else {
+          return window.FB.setDoc(ref, identity, {merge:true}).then(function(){ updated++; });
+        }
+      }).catch(function(err){
+        console.error('Sync error for', r.rowKey, err);
+        failed++;
+      });
+    });
+    Promise.all(tasks).then(function(){
+      if(btn){ btn.disabled=false; btn.innerHTML=originalLabel; }
+      toast('Đồng bộ xong: '+created+' case mới, '+updated+' case cập nhật'+(failed?', '+failed+' lỗi':'')+'.');
+    });
+  }
+
+  // ---------- wiring ----------
+  document.getElementById('fileInput').addEventListener('change', function(e){
+    var file = e.target.files[0];
+    if(!file) return;
+    var reader = new FileReader();
+    reader.onload = function(ev){
+      try{
+        var wb = XLSX.read(new Uint8Array(ev.target.result), {type:'array', cellDates:true});
+        var parsed = parseWorkbook(wb);
+        if(!parsed.branchNames.length){
+          toast('Không tìm thấy sheet chi nhánh nào có cột "Giải trình" / "Approve" trong file.');
+        }
+        state.masterRows = parsed.masterRows;
+        state.explanationMap = parsed.explanationMap;
+        state.branchNames = parsed.branchNames;
+        state.months = parsed.months;
+        state.currentMonth = parsed.months.length ? parsed.months[parsed.months.length-1] : null;
+        state.activeBranches = null;
+
+        // Seed app decisions from cases already marked "Approve = TRUE" in the uploaded
+        // file, but only the first time we see that case (rowKey not seen before).
+        // Every decision made afterwards happens inside the app and overrides this.
+        var seededCount = 0;
+        Object.keys(parsed.explanationMap).forEach(function(key){
+          if(decisions[key]) return; // app already has its own decision, don't override
+          if(parsed.explanationMap[key].approveInFile){
+            decisions[key] = {status:'approved', note:'', decidedAt:null, seededFromFile:true};
+            seededCount++;
+          }
+        });
+        if(seededCount) saveDecisions(decisions);
+
+        var monthSel = document.getElementById('monthSelect');
+        monthSel.innerHTML = parsed.months.map(function(m){ return '<option value="'+escapeHtml(m)+'">'+escapeHtml(monthLabelFromFile(m))+'</option>'; }).join('');
+        monthSel.value = state.currentMonth;
+        monthSel.style.display = parsed.months.length ? 'inline-block' : 'none';
+
+        document.getElementById('emptyState').style.display='none';
+        document.getElementById('dashboard').style.display='block';
+        document.getElementById('exportBtn').style.display='inline-block';
+        document.getElementById('uploadBtnText').textContent='Tải file khác';
+
+        renderAll();
+        toast('Đã nạp '+parsed.masterRows.length+' dòng dữ liệu.');
+      }catch(err){
+        console.error(err);
+        alert('Không đọc được file: '+err.message);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+    e.target.value='';
+  });
+
+  document.getElementById('monthSelect').addEventListener('change', function(e){
+    state.currentMonth = e.target.value;
+    renderAll();
+  });
+
+  document.querySelectorAll('.tab-btn').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      document.querySelectorAll('.tab-btn').forEach(function(b){ b.classList.remove('active'); });
+      document.querySelectorAll('.tab-panel').forEach(function(p){ p.classList.remove('active'); });
+      btn.classList.add('active');
+      document.getElementById('panel-'+btn.dataset.tab).classList.add('active');
+    });
+  });
+
+  document.querySelectorAll('table.staff-table th[data-sort]').forEach(function(th){
+    th.addEventListener('click', function(){
+      var col = th.dataset.sort;
+      if(state.sortCol===col) state.sortDir = state.sortDir==='asc'?'desc':'asc';
+      else { state.sortCol = col; state.sortDir = 'desc'; }
+      renderStaffTable(aggregate(state.currentMonth, state.branchNames));
+    });
+  });
+
+  document.getElementById('staffSearch').addEventListener('input', function(){
+    renderStaffTable(aggregate(state.currentMonth, state.branchNames));
+  });
+  document.getElementById('queueBranchFilter').addEventListener('change', renderQueue);
+  document.getElementById('queueStatusFilter').addEventListener('change', renderQueue);
+  document.getElementById('queueSearch').addEventListener('input', renderQueue);
+  document.getElementById('exportBtn').addEventListener('click', exportCSV);
+
+  document.getElementById('staffModalClose').addEventListener('click', closeStaffModal);
+  document.getElementById('staffModal').addEventListener('click', function(e){
+    if(e.target.id === 'staffModal') closeStaffModal();
+  });
+  document.addEventListener('keydown', function(e){
+    if(e.key==='Escape') closeStaffModal();
+  });
+  document.getElementById('staffModalGotoQueue').addEventListener('click', function(){
+    if(!currentModalStaff) return;
+    var target = currentModalStaff;
+    closeStaffModal();
+    document.querySelectorAll('.tab-btn').forEach(function(b){ b.classList.remove('active'); });
+    document.querySelectorAll('.tab-panel').forEach(function(p){ p.classList.remove('active'); });
+    document.querySelector('.tab-btn[data-tab="queue"]').classList.add('active');
+    document.getElementById('panel-queue').classList.add('active');
+    document.getElementById('queueBranchFilter').value = target.branch;
+    document.getElementById('queueStatusFilter').value = 'all';
+    document.getElementById('queueSearch').value = target.af;
+    renderQueue();
+  });
+
+  // ---------- nhân sự (staff self-service) view ----------
+  function distinctStaffNames(){
+    var set = {};
+    Object.keys(firestoreCases).forEach(function(id){
+      var c = firestoreCases[id];
+      if(c && c.af) set[c.af]=true;
+    });
+    return Object.keys(set).sort();
+  }
+
+  function renderNsNamePicker(){
+    var sel = document.getElementById('nsNameSelect');
+    var current = sel.value;
+    var names = distinctStaffNames();
+    sel.innerHTML = '<option value="">— Chọn tên —</option>' + names.map(function(n){
+      return '<option value="'+escapeHtml(n)+'">'+escapeHtml(n)+'</option>';
+    }).join('');
+    if(current && names.indexOf(current)!==-1) sel.value = current;
+  }
+
+  function fmtNsDate(v){
+    if(!v) return '—';
+    try{
+      var d = new Date(v);
+      if(isNaN(d)) return String(v);
+      return String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+'/'+d.getFullYear();
+    }catch(e){ return String(v); }
+  }
+
+  function buildNsCaseCard(c, editable){
+    var card = document.createElement('div');
+    card.className = 'case-card';
+    var statusHtml;
+    if(c.status==='approved') statusHtml = '<span class="stamp approved">Đã duyệt</span>';
+    else if(c.status==='rejected') statusHtml = '<span class="stamp rejected">Bị từ chối — cần bổ sung</span>';
+    else if(c.giaiTrinh) statusHtml = '<span class="stamp pending">Đã gửi, chờ duyệt</span>';
+    else statusHtml = '<span class="stamp nosubmit">Chưa gửi giải trình</span>';
+
+    card.innerHTML =
+      '<div class="case-top">'+
+        '<div>'+
+          '<div class="case-who">'+escapeHtml(c.tenHocVien||'(không rõ tên)')+'</div>'+
+          '<div class="case-meta">'+
+            '<span>Mã HV: '+escapeHtml(c.maHocVien||'')+'</span>'+
+            '<span>Lớp: '+escapeHtml(c.maLop||'')+'</span>'+
+            '<span>Ngày KT: '+escapeHtml(fmtNsDate(c.ngayKiemTra))+'</span>'+
+          '</div>'+
+          '<div class="case-meta"><span>Chi nhánh: '+escapeHtml((c.branch||'').replace('Scots English ',''))+'</span></div>'+
+        '</div>'+
+        '<div>'+statusHtml+'</div>'+
+      '</div>';
+
+    if(editable){
+      var ta = document.createElement('textarea');
+      ta.className = 'ns-textarea';
+      ta.placeholder = 'Nhập lý do / giải trình cho case này...';
+      ta.value = c.giaiTrinh || '';
+      card.appendChild(ta);
+      var row = document.createElement('div');
+      row.className = 'ns-submit-row';
+      var btn = document.createElement('button');
+      btn.className='btn primary';
+      btn.textContent = c.giaiTrinh ? 'Cập nhật giải trình' : 'Gửi giải trình';
+      btn.addEventListener('click', function(){
+        var text = ta.value.trim();
+        if(!text){ toast('Bạn cần nhập nội dung giải trình.'); return; }
+        if(!window.FB || !window.FB.enabled || !window.FB.ready){ toast('Chưa kết nối được máy chủ, thử lại sau.'); return; }
+        btn.disabled = true;
+        var ref = window.FB.doc(window.FB.casesCol, c.id);
+        window.FB.setDoc(ref, {
+          giaiTrinh: text, submittedBy: state.nsSelectedName, submittedAt: new Date().toISOString(),
+          status: null, updatedAt: window.FB.serverTimestamp()
+        }, {merge:true}).then(function(){
+          toast('Đã gửi giải trình.');
+          btn.disabled = false;
+        }).catch(function(err){
+          console.error(err);
+          toast('Gửi không thành công, thử lại.');
+          btn.disabled = false;
+        });
+      });
+      row.appendChild(btn);
+      card.appendChild(row);
+    } else {
+      var expl = document.createElement('div');
+      expl.className = 'case-explanation';
+      expl.textContent = c.giaiTrinh || '';
+      card.appendChild(expl);
+    }
+    return card;
+  }
+
+  function renderNsCases(){
+    if(!state.nsSelectedName) return;
+    document.getElementById('nsWhoLabel').textContent = state.nsSelectedName;
+    var all = Object.keys(firestoreCases).map(function(id){
+      var c = Object.assign({id:id}, firestoreCases[id]); return c;
+    }).filter(function(c){ return c.af===state.nsSelectedName; });
+
+    var pending = all.filter(function(c){ return c.status!=='approved'; });
+    pending.sort(function(a,b){ return (a.status==='rejected'?0:1) - (b.status==='rejected'?0:1); });
+    var history = all.filter(function(c){ return c.status==='approved'; });
+
+    var pendingList = document.getElementById('nsPendingList');
+    pendingList.innerHTML = '';
+    if(!pending.length){
+      pendingList.innerHTML = '<div class="ns-case-empty">Bạn không có case nào cần giải trình.</div>';
+    } else {
+      pending.forEach(function(c){ pendingList.appendChild(buildNsCaseCard(c, true)); });
+    }
+
+    var historyList = document.getElementById('nsHistoryList');
+    historyList.innerHTML = '';
+    if(!history.length){
+      historyList.innerHTML = '<div class="ns-case-empty">Chưa có case nào được duyệt.</div>';
+    } else {
+      history.forEach(function(c){ historyList.appendChild(buildNsCaseCard(c, false)); });
+    }
+  }
+
+  // ---------- role gate ----------
+  var ROLE_KEY = 'kpiLedger.role';
+  function showAdminApp(){
+    document.getElementById('roleGate').style.display='none';
+    document.getElementById('adminApp').style.display='block';
+    document.getElementById('nsApp').style.display='none';
+    startFirestoreListener();
+  }
+  function showNsApp(){
+    document.getElementById('roleGate').style.display='none';
+    document.getElementById('adminApp').style.display='none';
+    document.getElementById('nsApp').style.display='block';
+    startFirestoreListener();
+    renderNsNamePicker();
+  }
+  function showRoleGate(){
+    try{ localStorage.removeItem(ROLE_KEY); }catch(e){}
+    document.getElementById('roleGate').style.display='flex';
+    document.getElementById('adminApp').style.display='none';
+    document.getElementById('nsApp').style.display='none';
+  }
+
+  document.getElementById('roleAdminBtn').addEventListener('click', function(){
+    try{ localStorage.setItem(ROLE_KEY,'admin'); }catch(e){}
+    showAdminApp();
+  });
+  document.getElementById('roleStaffBtn').addEventListener('click', function(){
+    try{ localStorage.setItem(ROLE_KEY,'staff'); }catch(e){}
+    showNsApp();
+  });
+  document.getElementById('switchRoleBtnAdmin').addEventListener('click', showRoleGate);
+  document.getElementById('switchRoleBtnStaff').addEventListener('click', showRoleGate);
+  document.getElementById('syncFirestoreBtn').addEventListener('click', syncQueueToFirestore);
+  document.getElementById('nsChangeNameBtn').addEventListener('click', function(){
+    state.nsSelectedName = null;
+    document.getElementById('nsCases').style.display='none';
+    document.getElementById('nsPicker').style.display='block';
+    document.getElementById('nsNameSelect').value='';
+  });
+  document.getElementById('nsNameSelect').addEventListener('change', function(e){
+    var name = e.target.value;
+    if(!name) return;
+    state.nsSelectedName = name;
+    document.getElementById('nsPicker').style.display='none';
+    document.getElementById('nsCases').style.display='block';
+    renderNsCases();
+  });
+
+  try{
+    var savedRole = localStorage.getItem(ROLE_KEY);
+    if(savedRole==='admin') showAdminApp();
+    else if(savedRole==='staff') showNsApp();
+  }catch(e){ /* role gate stays visible by default */ }
+
+})();
+</script>
+</body>
+</html>

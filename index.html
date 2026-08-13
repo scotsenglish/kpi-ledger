@@ -19,7 +19,7 @@
     onSnapshot, serverTimestamp, query
   } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js";
   import {
-    getAuth, signInAnonymously, onAuthStateChanged
+    getAuth, signInAnonymously, signInWithEmailAndPassword, signOut, onAuthStateChanged
   } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-auth.js";
 
   var firebaseConfig = {
@@ -31,7 +31,7 @@
     appId: "1:32082656635:web:f893e2fdda89658121d1de"
   };
 
-  window.FB = { enabled: false, ready: false, db: null, auth: null, casesCol: null, error: null };
+  window.FB = { enabled: false, ready: false, db: null, auth: null, casesCol: null, error: null, user: null };
 
   try{
     var fbApp = initializeApp(firebaseConfig);
@@ -40,6 +40,7 @@
     window.FB.db = db;
     window.FB.auth = auth;
     window.FB.casesCol = collection(db, 'cases');
+    window.FB.kpiCol = collection(db, 'kpiSummary');
     window.FB.doc = doc;
     window.FB.getDoc = getDoc;
     window.FB.setDoc = setDoc;
@@ -49,16 +50,17 @@
     window.FB.query = query;
     window.FB.enabled = true;
 
+    // These are called explicitly by the app once the person picks a role,
+    // rather than signing in automatically — TLQM needs a real password,
+    // AS/AF gets a silent anonymous session. Both return a Promise.
+    window.FB.signInAnon = function(){ return signInAnonymously(auth); };
+    window.FB.signInEmail = function(email, password){ return signInWithEmailAndPassword(auth, email, password); };
+    window.FB.doSignOut = function(){ return signOut(auth); };
+
     onAuthStateChanged(auth, function(user){
-      if(user){
-        window.FB.ready = true;
-        window.dispatchEvent(new Event('fb-ready'));
-      }
-    });
-    signInAnonymously(auth).catch(function(err){
-      window.FB.error = err;
-      window.dispatchEvent(new Event('fb-error'));
-      console.error('Firebase anonymous sign-in failed:', err);
+      window.FB.user = user;
+      window.FB.ready = !!user;
+      window.dispatchEvent(new Event(user ? 'fb-ready' : 'fb-signedout'));
     });
   }catch(err){
     window.FB.error = err;
@@ -275,6 +277,22 @@
   .case-who{ font-size:14.5px; font-weight:600; }
   .case-meta{ font-family:'Be Vietnam Pro',sans-serif; font-variant-numeric:tabular-nums; font-size:11.5px; color:var(--ink-soft); margin-top:3px; }
   .case-meta span{ margin-right:12px; }
+  /* Compact label/value info grid — used in both admin queue cards and
+     the nhân sự (staff) case cards, so the same fields always look the
+     same regardless of which role is viewing them. */
+  .case-info-grid{
+    display:grid; grid-template-columns:repeat(auto-fill,minmax(108px,1fr)); gap:10px 16px;
+    margin-top:12px; padding-top:12px; border-top:1px solid var(--line-soft);
+  }
+  .case-info-item{ display:flex; flex-direction:column; gap:2px; min-width:0; }
+  .case-info-label{
+    font-size:9.5px; letter-spacing:0.07em; text-transform:uppercase; color:var(--ink-faint);
+    font-family:'Be Vietnam Pro',sans-serif; font-weight:500;
+  }
+  .case-info-value{
+    font-size:12.5px; font-family:'Be Vietnam Pro',sans-serif; font-variant-numeric:tabular-nums;
+    color:var(--ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
   .case-explanation{
     margin:12px 0; padding:10px 12px; background:var(--paper); border-radius:10px;
     font-size:13px; line-height:1.55; color:var(--ink);
@@ -450,18 +468,32 @@
 
 <div id="roleGate">
   <div class="role-card">
-    <div class="stamp-big" style="margin:0 auto 22px;">S</div>
-    <h2>Bạn đang truy cập với vai trò nào?</h2>
-    <p>Chọn vai trò để vào đúng giao diện. Có thể đổi lại bất kỳ lúc nào.</p>
-    <div class="role-btns">
-      <button class="role-btn" id="roleAdminBtn">
-        <strong>Admin</strong>
-        <span>Xem KPI toàn chi nhánh &amp; duyệt giải trình</span>
-      </button>
-      <button class="role-btn" id="roleStaffBtn">
-        <strong>Nhân sự</strong>
-        <span>Gửi giải trình cho case của mình</span>
-      </button>
+    <div id="roleChoiceView">
+      <div class="stamp-big" style="margin:0 auto 22px;">S</div>
+      <h2>Bạn đang truy cập với vai trò nào?</h2>
+      <p>Chọn vai trò để vào đúng giao diện. Có thể đổi lại bất kỳ lúc nào.</p>
+      <div class="role-btns">
+        <button class="role-btn" id="roleAdminBtn">
+          <strong>TLQM</strong>
+          <span>Xem KPI toàn chi nhánh &amp; duyệt giải trình</span>
+        </button>
+        <button class="role-btn" id="roleStaffBtn">
+          <strong>AS/AF</strong>
+          <span>Gửi giải trình cho case của mình</span>
+        </button>
+      </div>
+    </div>
+    <div id="tlqmLoginView" style="display:none;">
+      <div class="stamp-big" style="margin:0 auto 22px;">🔒</div>
+      <h2>Đăng nhập TLQM</h2>
+      <p>Dùng tài khoản email/mật khẩu đã tạo trong Firebase Authentication.</p>
+      <input type="email" id="tlqmEmail" class="ns-select" placeholder="Email" autocomplete="username" style="margin-bottom:10px;">
+      <input type="password" id="tlqmPassword" class="ns-select" placeholder="Mật khẩu" autocomplete="current-password">
+      <div id="tlqmLoginError" style="display:none;color:var(--red);font-size:12.5px;margin-top:10px;text-align:left;"></div>
+      <div class="role-btns" style="margin-top:16px;">
+        <button class="btn primary" id="tlqmLoginSubmit" style="justify-content:center;">Đăng nhập</button>
+        <button class="btn ghost" id="tlqmLoginBack" style="justify-content:center;">Quay lại</button>
+      </div>
     </div>
   </div>
 </div>
@@ -526,12 +558,12 @@
 
     <div class="tab-panel active" id="panel-ranking">
       <div class="filter-row">
-        <input type="text" class="search grow" id="staffSearch" placeholder="Tìm theo tên nhân sự...">
+        <input type="text" class="search grow" id="staffSearch" placeholder="Tìm theo tên AS/AF...">
       </div>
       <table class="staff-table" id="staffTable">
         <thead>
           <tr>
-            <th data-sort="name">Nhân sự</th>
+            <th data-sort="name">AS/AF</th>
             <th data-sort="branch">Chi nhánh</th>
             <th class="num-cell" data-sort="A">A</th>
             <th class="num-cell" data-sort="B">B</th>
@@ -559,7 +591,7 @@
           <option value="approved">Đã duyệt</option>
           <option value="rejected">Từ chối</option>
         </select>
-        <input type="text" class="search grow" id="queueSearch" placeholder="Tìm theo tên học viên / nhân sự...">
+        <input type="text" class="search grow" id="queueSearch" placeholder="Tìm theo tên học viên / AS/AF...">
       </div>
       <div class="queue-list" id="queueList"></div>
     </div>
@@ -586,7 +618,7 @@
       <div class="mark">S</div>
       <div>
         <h1>Giải trình của tôi</h1>
-        <div class="sub">Scots English — gửi giải trình case chưa xếp loại</div>
+        <div class="sub">Scots English — theo dõi KPI &amp; gửi giải trình</div>
       </div>
     </div>
     <div class="header-actions">
@@ -602,20 +634,34 @@
     <div id="nsPicker" class="ns-picker">
       <div class="eyebrow">Bước 1</div>
       <h2>Bạn là ai?</h2>
-      <p class="ns-sub">Chọn đúng tên của bạn để xem case cần giải trình.</p>
+      <p class="ns-sub">Chọn đúng tên của bạn để xem KPI và case cần giải trình.</p>
       <select id="nsNameSelect" class="ns-select">
         <option value="">— Chọn tên —</option>
       </select>
-      <div class="ns-picker-hint">Không thấy tên bạn trong danh sách? Nghĩa là hiện chưa có case nào cần giải trình gán cho bạn, hoặc admin chưa đồng bộ dữ liệu tháng này.</div>
+      <div class="ns-picker-hint">Không thấy tên bạn trong danh sách? Nghĩa là hiện chưa có dữ liệu nào được đồng bộ cho bạn, hoặc admin chưa đồng bộ dữ liệu tháng này.</div>
     </div>
 
     <div id="nsCases" style="display:none;">
       <div class="section-label">
         <div>
           <div class="eyebrow" id="nsWhoLabel">—</div>
-          <h2>Case cần giải trình</h2>
+          <h2>KPI của tôi</h2>
         </div>
         <button class="btn ghost" id="nsChangeNameBtn">Đổi tên</button>
+      </div>
+      <div class="branch-grid" id="nsKpiGrid"></div>
+
+      <div class="section-label" style="margin-top:36px;">
+        <div><h2 style="font-size:16px;">Tra cứu case của tôi</h2></div>
+      </div>
+      <div class="filter-row">
+        <select id="nsMonthFilter"><option value="all">Tất cả các tháng</option></select>
+        <input type="text" class="search grow" id="nsStudentFilter" placeholder="Tìm theo tên học viên...">
+        <input type="text" class="search grow" id="nsClassFilter" placeholder="Tìm theo mã lớp...">
+      </div>
+
+      <div class="section-label" style="margin-top:22px;">
+        <div><h2 style="font-size:15px;">Case cần giải trình</h2></div>
       </div>
       <div class="queue-list" id="nsPendingList"></div>
 
@@ -636,7 +682,7 @@
       </div>
       <button class="modal-close" id="staffModalClose" aria-label="Đóng"><svg viewBox="0 0 20 20" fill="none"><path d="M5 5L15 15M15 5L5 15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
     </div>
-    <button class="modal-goto" id="staffModalGotoQueue"><svg viewBox="0 0 20 20" fill="none" style="width:14px;height:14px;"><path d="M4 10h10M14 10l-3.5-3.5M14 10l-3.5 3.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Xem case cần duyệt của nhân sự này</button>
+    <button class="modal-goto" id="staffModalGotoQueue"><svg viewBox="0 0 20 20" fill="none" style="width:14px;height:14px;"><path d="M4 10h10M14 10l-3.5-3.5M14 10l-3.5 3.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Xem case cần duyệt của AS/AF này</button>
     <div class="modal-body" id="staffModalBody"></div>
   </div>
 </div>
@@ -693,6 +739,21 @@
       return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
     });
   }
+  function gradeTextCell(v){
+    var vv = v ? norm(v) : '';
+    if(!vv) return '<span class="grade-text dash">—</span>';
+    var cssClass = (vv==='A'||vv==='B'||vv==='C'||vv==='D') ? vv : '';
+    return '<span class="grade-text '+cssClass+'">'+escapeHtml(vv)+'</span>';
+  }
+  function ketQuaLabel(xepLoaiTong){
+    var vv = xepLoaiTong ? norm(xepLoaiTong) : '';
+    if(vv==='Không xếp loại') return '<span class="grade-text dash">Không xếp loại</span>';
+    if(!vv) return '<span class="grade-text dash">Chưa có kết quả</span>';
+    return gradeTextCell(vv);
+  }
+  function infoItem(label, valueHtml){
+    return '<div class="case-info-item"><span class="case-info-label">'+escapeHtml(label)+'</span><span class="case-info-value">'+valueHtml+'</span></div>';
+  }
 
   var SYSTEM_SHEETS = ['Data','Sample file','Transform Sample file','Export','Parameter','Query'];
 
@@ -730,6 +791,7 @@
   // priority over the Excel-only / localStorage-only data so admin and
   // nhân sự see the same up-to-date picture.
   var firestoreCases = {};
+  var firestoreKpiSummary = {};
   var firestoreListenerStarted = false;
 
   function sanitizeCaseId(rowKey){
@@ -774,6 +836,17 @@
       }, function(err){
         console.error('Firestore listener error:', err);
         document.getElementById('nsOffline').style.display='block';
+      });
+      window.FB.onSnapshot(window.FB.kpiCol, function(snap){
+        var next = {};
+        snap.forEach(function(docSnap){ next[docSnap.id] = docSnap.data(); });
+        firestoreKpiSummary = next;
+        if(document.getElementById('nsApp').style.display!=='none'){
+          renderNsNamePicker();
+          if(state.nsSelectedName) renderNsCases();
+        }
+      }, function(err){
+        console.error('KPI summary listener error:', err);
       });
     }catch(err){
       console.error('Could not start Firestore listener:', err);
@@ -966,6 +1039,7 @@
       out.push({
         rowKey:r.rowKey, tenHocVien:r.tenHocVien, maHocVien:r.maHocVien, maLop:r.maLop,
         ngayKiemTra:r.ngayKiemTra, tenTrungTam:r.tenTrungTam, af:r.af, loaiBaiThi:r.loaiBaiThi,
+        xepLoaiSpeaking:r.xepLoaiSpeaking, xepLoaiWritten:r.xepLoaiWritten, xepLoaiTong:r.xepLoaiTong,
         giaiTrinh: eff.giaiTrinh, status: eff.status, note: eff.note,
         submittedBy: eff.submittedBy, synced: eff.fromFirestore
       });
@@ -1038,7 +1112,7 @@
           '<div class="pending-badge'+(r.pending===0?' zero':'')+'">'+(r.pending===0?'Hoàn thành':r.pending+' chờ xử lý')+'</div>'+
         '</div>'+
         '<div class="kpi-num">'+fmtPct(r.totals.kpi)+'</div>'+
-        '<div class="meta"><span>'+r.branches.length+' chi nhánh</span><span>'+r.totals.total+' bài KT</span><span>'+r.staffCount+' nhân sự</span></div>';
+        '<div class="meta"><span>'+r.branches.length+' chi nhánh</span><span>'+r.totals.total+' bài KT</span><span>'+r.staffCount+' AS/AF</span></div>';
       card.addEventListener('click', function(){
         if(isActive){ state.activeBranches = null; }
         else { state.activeBranches = r.branches.slice(); }
@@ -1063,7 +1137,7 @@
           '<div class="pending-badge'+(pendingCount===0?' zero':'')+'">'+(pendingCount===0?'Hoàn thành':pendingCount+' chờ xử lý')+'</div>'+
         '</div>'+
         '<div class="kpi-num">'+fmtPct(t.kpi)+'</div>'+
-        '<div class="meta"><span>'+t.total+' bài KT</span><span>'+Object.keys(agg[b].staff).length+' nhân sự</span></div>';
+        '<div class="meta"><span>'+t.total+' bài KT</span><span>'+Object.keys(agg[b].staff).length+' AS/AF</span></div>';
       card.addEventListener('click', function(){
         if(state.activeBranches && state.activeBranches.length===1 && state.activeBranches[0]===b){
           state.activeBranches = null;
@@ -1176,7 +1250,7 @@
 
     var body = document.getElementById('staffModalBody');
     if(!months.length){
-      body.innerHTML = '<div class="modal-empty">Không tìm thấy học viên nào cho nhân sự này.</div>';
+      body.innerHTML = '<div class="modal-empty">Không tìm thấy học viên nào cho AS/AF này.</div>';
     } else {
       var html = '';
       months.slice().reverse().forEach(function(m){
@@ -1213,12 +1287,6 @@
             badge = statusStampSmall(eff.status, eff.giaiTrinh);
           } else {
             badge = '<span class="grade-badge '+escapeHtml(cls)+'">'+escapeHtml(cls)+'</span>';
-          }
-          function gradeTextCell(v){
-            var vv = v ? norm(v) : '';
-            if(!vv) return '<span class="grade-text dash">—</span>';
-            var cssClass = (vv==='A'||vv==='B'||vv==='C'||vv==='D') ? vv : '';
-            return '<span class="grade-text '+cssClass+'">'+escapeHtml(vv)+'</span>';
           }
           html += '<tr><td class="wrap">'+escapeHtml(r.tenHocVien)+'</td>'+
             '<td style="color:var(--ink-soft);font-size:11.5px;">'+escapeHtml(r.tenTrungTam.replace('Scots English ',''))+'</td>'+
@@ -1299,15 +1367,19 @@
         '<div class="case-top">'+
           '<div>'+
             '<div class="case-who">'+escapeHtml(c.tenHocVien||'(không rõ tên)')+'</div>'+
-            '<div class="case-meta">'+
-              '<span>Mã HV: '+escapeHtml(c.maHocVien)+'</span>'+
-              '<span>Lớp: '+escapeHtml(c.maLop)+'</span>'+
-              '<span>Ngày KT: '+fmtDate(c.ngayKiemTra)+'</span>'+
-              '<span>'+escapeHtml((c.loaiBaiThi||'').toString())+'</span>'+
-            '</div>'+
-            '<div class="case-meta"><span>Chi nhánh: '+escapeHtml(c.tenTrungTam.replace('Scots English ',''))+'</span><span>AF: '+escapeHtml(c.af)+'</span>'+(c.submittedBy?'<span>Người gửi: '+escapeHtml(c.submittedBy)+'</span>':'')+'</div>'+
+            '<div class="case-meta"><span>Chi nhánh: '+escapeHtml(c.tenTrungTam.replace('Scots English ',''))+'</span><span>AS/AF: '+escapeHtml(c.af)+'</span</div>'+
           '</div>'+
           '<div>'+statusHtml+'</div>'+
+        '</div>'+
+        '<div class="case-info-grid">'+
+          infoItem('Mã HV', escapeHtml(c.maHocVien))+
+          infoItem('Lớp', escapeHtml(c.maLop))+
+          infoItem('Ngày KT', fmtDate(c.ngayKiemTra))+
+          infoItem('Loại bài thi', escapeHtml((c.loaiBaiThi||'—').toString()))+
+          infoItem('Speaking', gradeTextCell(c.xepLoaiSpeaking))+
+          infoItem('Written', gradeTextCell(c.xepLoaiWritten))+
+          infoItem('Kết quả', ketQuaLabel(c.xepLoaiTong))+
+          (c.submittedBy ? infoItem('Người gửi', escapeHtml(c.submittedBy)) : '')+
         '</div>'+
         '<div class="case-explanation'+(c.giaiTrinh?'':' empty')+'">'+(c.giaiTrinh ? escapeHtml(c.giaiTrinh) : 'Chi nhánh chưa gửi giải trình cho case này.')+'</div>'+
         '<div class="case-actions">'+
@@ -1358,7 +1430,7 @@
     d.seededFromFile = false;
     decisions[rowKey] = d;
     saveDecisions(decisions);
-    pushCaseUpdate(rowKey, {status: status, decidedAt: d.decidedAt, decidedBy: 'Admin'});
+    pushCaseUpdate(rowKey, {status: status, decidedAt: d.decidedAt, decidedBy: 'TLQM'});
     toast(status==='approved' ? 'Đã duyệt — case này được loại khỏi tổng số HV tính KPI.' : status==='rejected' ? 'Đã từ chối.' : 'Đã đặt lại trạng thái.');
     var agg = aggregate(state.currentMonth, state.branchNames);
     renderBranchGrid(agg);
@@ -1402,7 +1474,7 @@
   function exportCSV(){
     var branchList = currentBranchScope();
     var queue = buildQueue(state.currentMonth, branchList);
-    var header = ['Chi nhánh','Nhân sự (AF)','Tên học viên','Mã học viên','Mã lớp','Ngày kiểm tra','Loại bài thi','Giải trình','Trạng thái duyệt','Ghi chú','Thời điểm duyệt'];
+    var header = ['Chi nhánh','AS/AF','Tên học viên','Mã học viên','Mã lớp','Ngày kiểm tra','Loại bài thi','Giải trình','Trạng thái duyệt','Ghi chú','Thời điểm duyệt'];
     var lines = [header.join(',')];
     queue.forEach(function(c){
       var d = decisions[c.rowKey] || {};
@@ -1429,15 +1501,17 @@
       toast('Chưa kết nối được tới Firestore. Kiểm tra mạng rồi thử lại.');
       return;
     }
-    var rows = state.masterRows.filter(function(r){
-      return r.sourceFile===state.currentMonth && isUnclassified(r.xepLoaiTong) && state.branchNames.indexOf(r.tenTrungTam)!==-1;
-    });
-    if(!rows.length){ toast('Không có case nào cần đồng bộ cho tháng này.'); return; }
+    if(!state.currentMonth){ toast('Chưa có tháng nào được chọn.'); return; }
     var btn = document.getElementById('syncFirestoreBtn');
     var originalLabel = btn ? btn.innerHTML : '';
     if(btn){ btn.disabled = true; btn.textContent = 'Đang đồng bộ…'; }
+
+    // Part 1: case documents (only the ones needing giải trình).
+    var rows = state.masterRows.filter(function(r){
+      return r.sourceFile===state.currentMonth && isUnclassified(r.xepLoaiTong) && state.branchNames.indexOf(r.tenTrungTam)!==-1;
+    });
     var created=0, updated=0, failed=0;
-    var tasks = rows.map(function(r){
+    var caseTasks = rows.map(function(r){
       var id = sanitizeCaseId(r.rowKey);
       var ref = window.FB.doc(window.FB.casesCol, id);
       return window.FB.getDoc(ref).then(function(snap){
@@ -1446,6 +1520,7 @@
           maHocVien: r.maHocVien!=null?String(r.maHocVien):'', maLop: r.maLop||'',
           ngayKiemTra: r.ngayKiemTra instanceof Date ? r.ngayKiemTra.toISOString() : String(r.ngayKiemTra||''),
           sourceFile: r.sourceFile||'', loaiBaiThi: r.loaiBaiThi||'',
+          xepLoaiSpeaking: r.xepLoaiSpeaking||'', xepLoaiWritten: r.xepLoaiWritten||'', xepLoaiTong: r.xepLoaiTong||'',
           updatedAt: window.FB.serverTimestamp()
         };
         if(!snap.exists()){
@@ -1464,9 +1539,34 @@
         failed++;
       });
     });
-    Promise.all(tasks).then(function(){
+
+    // Part 2: per-AS/AF KPI summary for the current month, so each person
+    // can see their own KPI in the AS/AF view — even if they have zero
+    // pending cases.
+    var agg = aggregate(state.currentMonth, state.branchNames);
+    var kpiFailed = 0, kpiCount = 0;
+    var kpiTasks = [];
+    state.branchNames.forEach(function(branch){
+      var staffMap = agg[branch] ? agg[branch].staff : {};
+      Object.keys(staffMap).forEach(function(af){
+        var s = staffMap[af];
+        var kpiId = sanitizeCaseId(branch+'|'+af+'|'+state.currentMonth);
+        var ref = window.FB.doc(window.FB.kpiCol, kpiId);
+        kpiCount++;
+        kpiTasks.push(window.FB.setDoc(ref, {
+          branch: branch, af: af, sourceFile: state.currentMonth,
+          A:s.A, B:s.B, C:s.C, D:s.D, unclassified:s.unclassified, total:s.total, kpi:s.kpi,
+          updatedAt: window.FB.serverTimestamp()
+        }, {merge:true}).catch(function(err){
+          console.error('KPI sync error for', branch, af, err);
+          kpiFailed++;
+        }));
+      });
+    });
+
+    Promise.all(caseTasks.concat(kpiTasks)).then(function(){
       if(btn){ btn.disabled=false; btn.innerHTML=originalLabel; }
-      toast('Đồng bộ xong: '+created+' case mới, '+updated+' case cập nhật'+(failed?', '+failed+' lỗi':'')+'.');
+      toast('Đồng bộ xong: '+created+' case mới, '+updated+' case cập nhật, '+kpiCount+' KPI AS/AF'+((failed||kpiFailed)?', '+(failed+kpiFailed)+' lỗi':'')+'.');
     });
   }
 
@@ -1582,6 +1682,10 @@
       var c = firestoreCases[id];
       if(c && c.af) set[c.af]=true;
     });
+    Object.keys(firestoreKpiSummary).forEach(function(id){
+      var s = firestoreKpiSummary[id];
+      if(s && s.af) set[s.af]=true;
+    });
     return Object.keys(set).sort();
   }
 
@@ -1617,14 +1721,17 @@
       '<div class="case-top">'+
         '<div>'+
           '<div class="case-who">'+escapeHtml(c.tenHocVien||'(không rõ tên)')+'</div>'+
-          '<div class="case-meta">'+
-            '<span>Mã HV: '+escapeHtml(c.maHocVien||'')+'</span>'+
-            '<span>Lớp: '+escapeHtml(c.maLop||'')+'</span>'+
-            '<span>Ngày KT: '+escapeHtml(fmtNsDate(c.ngayKiemTra))+'</span>'+
-          '</div>'+
           '<div class="case-meta"><span>Chi nhánh: '+escapeHtml((c.branch||'').replace('Scots English ',''))+'</span></div>'+
         '</div>'+
         '<div>'+statusHtml+'</div>'+
+      '</div>'+
+      '<div class="case-info-grid">'+
+        infoItem('Mã HV', escapeHtml(c.maHocVien||''))+
+        infoItem('Lớp', escapeHtml(c.maLop||''))+
+        infoItem('Ngày KT', escapeHtml(fmtNsDate(c.ngayKiemTra)))+
+        infoItem('Speaking', gradeTextCell(c.xepLoaiSpeaking))+
+        infoItem('Written', gradeTextCell(c.xepLoaiWritten))+
+        infoItem('Kết quả', ketQuaLabel(c.xepLoaiTong))+
       '</div>';
 
     if(editable){
@@ -1667,12 +1774,67 @@
     return card;
   }
 
+  function renderNsKpi(){
+    if(!state.nsSelectedName) return;
+    var rows = Object.keys(firestoreKpiSummary).map(function(id){ return firestoreKpiSummary[id]; })
+      .filter(function(s){ return s.af===state.nsSelectedName; });
+    rows.sort(function(a,b){ return monthSortKey(b.sourceFile)-monthSortKey(a.sourceFile); });
+    var grid = document.getElementById('nsKpiGrid');
+    grid.innerHTML = '';
+    if(!rows.length){
+      grid.innerHTML = '<div class="ns-case-empty">Chưa có dữ liệu KPI nào được đồng bộ cho bạn. Báo TLQM đồng bộ dữ liệu tháng này.</div>';
+      return;
+    }
+    rows.forEach(function(s){
+      var card = document.createElement('div');
+      card.className = 'branch-card';
+      card.style.cursor = 'default';
+      card.innerHTML =
+        '<div class="branch-card-head"><div class="name">'+escapeHtml(monthLabelFromFile(s.sourceFile))+' · '+escapeHtml((s.branch||'').replace('Scots English ',''))+'</div></div>'+
+        '<div class="kpi-num">'+fmtPct(s.kpi)+'</div>'+
+        '<div class="meta"><span>A '+s.A+' · B '+s.B+' · C '+s.C+' · D '+s.D+'</span><span>Tổng '+s.total+'</span></div>';
+      grid.appendChild(card);
+    });
+  }
+
+  function populateNsMonthFilter(){
+    var sel = document.getElementById('nsMonthFilter');
+    var current = sel.value;
+    var monthsSet = {};
+    Object.keys(firestoreCases).forEach(function(id){
+      var c = firestoreCases[id];
+      if(c && c.af===state.nsSelectedName && c.sourceFile) monthsSet[c.sourceFile]=true;
+    });
+    Object.keys(firestoreKpiSummary).forEach(function(id){
+      var s = firestoreKpiSummary[id];
+      if(s && s.af===state.nsSelectedName && s.sourceFile) monthsSet[s.sourceFile]=true;
+    });
+    var months = Object.keys(monthsSet).sort(function(a,b){ return monthSortKey(a)-monthSortKey(b); });
+    sel.innerHTML = '<option value="all">Tất cả các tháng</option>' + months.map(function(m){
+      return '<option value="'+escapeHtml(m)+'">'+escapeHtml(monthLabelFromFile(m))+'</option>';
+    }).join('');
+    if(current && months.indexOf(current)!==-1) sel.value = current;
+  }
+
   function renderNsCases(){
     if(!state.nsSelectedName) return;
     document.getElementById('nsWhoLabel').textContent = state.nsSelectedName;
+    renderNsKpi();
+    populateNsMonthFilter();
+
+    var monthFilter = document.getElementById('nsMonthFilter').value || 'all';
+    var studentFilter = norm(document.getElementById('nsStudentFilter').value).toLowerCase();
+    var classFilter = norm(document.getElementById('nsClassFilter').value).toLowerCase();
+
     var all = Object.keys(firestoreCases).map(function(id){
       var c = Object.assign({id:id}, firestoreCases[id]); return c;
-    }).filter(function(c){ return c.af===state.nsSelectedName; });
+    }).filter(function(c){
+      if(c.af!==state.nsSelectedName) return false;
+      if(monthFilter!=='all' && c.sourceFile!==monthFilter) return false;
+      if(studentFilter && (c.tenHocVien||'').toLowerCase().indexOf(studentFilter)===-1) return false;
+      if(classFilter && (c.maLop||'').toLowerCase().indexOf(classFilter)===-1) return false;
+      return true;
+    });
 
     var pending = all.filter(function(c){ return c.status!=='approved'; });
     pending.sort(function(a,b){ return (a.status==='rejected'?0:1) - (b.status==='rejected'?0:1); });
@@ -1681,7 +1843,7 @@
     var pendingList = document.getElementById('nsPendingList');
     pendingList.innerHTML = '';
     if(!pending.length){
-      pendingList.innerHTML = '<div class="ns-case-empty">Bạn không có case nào cần giải trình.</div>';
+      pendingList.innerHTML = '<div class="ns-case-empty">Không có case nào khớp bộ lọc.</div>';
     } else {
       pending.forEach(function(c){ pendingList.appendChild(buildNsCaseCard(c, true)); });
     }
@@ -1689,13 +1851,13 @@
     var historyList = document.getElementById('nsHistoryList');
     historyList.innerHTML = '';
     if(!history.length){
-      historyList.innerHTML = '<div class="ns-case-empty">Chưa có case nào được duyệt.</div>';
+      historyList.innerHTML = '<div class="ns-case-empty">Không có case nào khớp bộ lọc.</div>';
     } else {
       history.forEach(function(c){ historyList.appendChild(buildNsCaseCard(c, false)); });
     }
   }
 
-  // ---------- role gate ----------
+  // ---------- role gate (with real Firebase sign-in) ----------
   var ROLE_KEY = 'kpiLedger.role';
   function showAdminApp(){
     document.getElementById('roleGate').style.display='none';
@@ -1710,20 +1872,85 @@
     startFirestoreListener();
     renderNsNamePicker();
   }
+  function resetRoleGateView(){
+    document.getElementById('roleChoiceView').style.display='block';
+    document.getElementById('tlqmLoginView').style.display='none';
+    document.getElementById('tlqmLoginError').style.display='none';
+    document.getElementById('tlqmEmail').value='';
+    document.getElementById('tlqmPassword').value='';
+  }
   function showRoleGate(){
     try{ localStorage.removeItem(ROLE_KEY); }catch(e){}
+    if(window.FB && window.FB.enabled && window.FB.doSignOut){
+      window.FB.doSignOut().catch(function(){ /* ignore */ });
+    }
+    resetRoleGateView();
     document.getElementById('roleGate').style.display='flex';
     document.getElementById('adminApp').style.display='none';
     document.getElementById('nsApp').style.display='none';
   }
 
+  function currentAuthProvider(){
+    if(!window.FB || !window.FB.user) return null;
+    return window.FB.user.isAnonymous ? 'anonymous' : 'password';
+  }
+  function tryAutoEnterFromSession(){
+    if(document.getElementById('adminApp').style.display!=='none') return; // already in
+    if(document.getElementById('nsApp').style.display!=='none') return;
+    var provider = currentAuthProvider();
+    var savedRole = null;
+    try{ savedRole = localStorage.getItem(ROLE_KEY); }catch(e){}
+    if(savedRole==='admin' && provider==='password'){ showAdminApp(); }
+    else if(savedRole==='staff' && provider==='anonymous'){ showNsApp(); }
+  }
+  window.addEventListener('fb-ready', tryAutoEnterFromSession);
+  if(window.FB && window.FB.ready) tryAutoEnterFromSession();
+
   document.getElementById('roleAdminBtn').addEventListener('click', function(){
-    try{ localStorage.setItem(ROLE_KEY,'admin'); }catch(e){}
-    showAdminApp();
+    document.getElementById('roleChoiceView').style.display='none';
+    document.getElementById('tlqmLoginView').style.display='block';
+    document.getElementById('tlqmEmail').focus();
   });
+  document.getElementById('tlqmLoginBack').addEventListener('click', resetRoleGateView);
+
+  function submitTlqmLogin(){
+    if(!window.FB || !window.FB.enabled){ toast('Chưa kết nối được Firebase.'); return; }
+    var email = document.getElementById('tlqmEmail').value.trim();
+    var pw = document.getElementById('tlqmPassword').value;
+    var errEl = document.getElementById('tlqmLoginError');
+    errEl.style.display='none';
+    if(!email || !pw){ errEl.textContent='Nhập đủ email và mật khẩu.'; errEl.style.display='block'; return; }
+    var btn = document.getElementById('tlqmLoginSubmit');
+    btn.disabled = true; btn.textContent = 'Đang đăng nhập…';
+    window.FB.signInEmail(email, pw).then(function(){
+      try{ localStorage.setItem(ROLE_KEY,'admin'); }catch(e){}
+      btn.disabled = false; btn.textContent = 'Đăng nhập';
+      showAdminApp();
+    }).catch(function(err){
+      console.error('TLQM login failed:', err);
+      btn.disabled = false; btn.textContent = 'Đăng nhập';
+      errEl.textContent = 'Sai email hoặc mật khẩu, thử lại.';
+      errEl.style.display='block';
+    });
+  }
+  document.getElementById('tlqmLoginSubmit').addEventListener('click', submitTlqmLogin);
+  document.getElementById('tlqmPassword').addEventListener('keydown', function(e){
+    if(e.key==='Enter') submitTlqmLogin();
+  });
+
   document.getElementById('roleStaffBtn').addEventListener('click', function(){
-    try{ localStorage.setItem(ROLE_KEY,'staff'); }catch(e){}
-    showNsApp();
+    if(!window.FB || !window.FB.enabled){ toast('Chưa kết nối được Firebase.'); return; }
+    var btn = document.getElementById('roleStaffBtn');
+    btn.disabled = true;
+    window.FB.signInAnon().then(function(){
+      try{ localStorage.setItem(ROLE_KEY,'staff'); }catch(e){}
+      btn.disabled = false;
+      showNsApp();
+    }).catch(function(err){
+      console.error('Anonymous sign-in failed:', err);
+      btn.disabled = false;
+      toast('Không kết nối được, thử lại.');
+    });
   });
   document.getElementById('switchRoleBtnAdmin').addEventListener('click', showRoleGate);
   document.getElementById('switchRoleBtnStaff').addEventListener('click', showRoleGate);
@@ -1742,12 +1969,9 @@
     document.getElementById('nsCases').style.display='block';
     renderNsCases();
   });
-
-  try{
-    var savedRole = localStorage.getItem(ROLE_KEY);
-    if(savedRole==='admin') showAdminApp();
-    else if(savedRole==='staff') showNsApp();
-  }catch(e){ /* role gate stays visible by default */ }
+  document.getElementById('nsMonthFilter').addEventListener('change', renderNsCases);
+  document.getElementById('nsStudentFilter').addEventListener('input', renderNsCases);
+  document.getElementById('nsClassFilter').addEventListener('input', renderNsCases);
 
 })();
 </script>

@@ -656,8 +656,8 @@
       </div>
       <div class="filter-row">
         <select id="nsMonthFilter"><option value="all">Tất cả các tháng</option></select>
-        <input type="text" class="search grow" id="nsStudentFilter" placeholder="Tìm theo tên học viên...">
-        <input type="text" class="search grow" id="nsClassFilter" placeholder="Tìm theo mã lớp...">
+        <select id="nsStudentFilter"><option value="all">Tất cả học viên</option></select>
+        <select id="nsClassFilter"><option value="all">Tất cả lớp</option></select>
       </div>
 
       <div class="section-label" style="margin-top:22px;">
@@ -1816,23 +1816,47 @@
     if(current && months.indexOf(current)!==-1) sel.value = current;
   }
 
+  function populateNsStudentClassFilters(){
+    var studentSel = document.getElementById('nsStudentFilter');
+    var classSel = document.getElementById('nsClassFilter');
+    var curStudent = studentSel.value, curClass = classSel.value;
+    var students = {}, classes = {};
+    Object.keys(firestoreCases).forEach(function(id){
+      var c = firestoreCases[id];
+      if(!c || c.af!==state.nsSelectedName) return;
+      if(c.tenHocVien) students[c.tenHocVien]=true;
+      if(c.maLop) classes[c.maLop]=true;
+    });
+    var studentList = Object.keys(students).sort();
+    var classList = Object.keys(classes).sort();
+    studentSel.innerHTML = '<option value="all">Tất cả học viên</option>' + studentList.map(function(n){
+      return '<option value="'+escapeHtml(n)+'">'+escapeHtml(n)+'</option>';
+    }).join('');
+    classSel.innerHTML = '<option value="all">Tất cả lớp</option>' + classList.map(function(n){
+      return '<option value="'+escapeHtml(n)+'">'+escapeHtml(n)+'</option>';
+    }).join('');
+    if(curStudent && studentList.indexOf(curStudent)!==-1) studentSel.value = curStudent;
+    if(curClass && classList.indexOf(curClass)!==-1) classSel.value = curClass;
+  }
+
   function renderNsCases(){
     if(!state.nsSelectedName) return;
     document.getElementById('nsWhoLabel').textContent = state.nsSelectedName;
     renderNsKpi();
     populateNsMonthFilter();
+    populateNsStudentClassFilters();
 
     var monthFilter = document.getElementById('nsMonthFilter').value || 'all';
-    var studentFilter = norm(document.getElementById('nsStudentFilter').value).toLowerCase();
-    var classFilter = norm(document.getElementById('nsClassFilter').value).toLowerCase();
+    var studentFilter = document.getElementById('nsStudentFilter').value || 'all';
+    var classFilter = document.getElementById('nsClassFilter').value || 'all';
 
     var all = Object.keys(firestoreCases).map(function(id){
       var c = Object.assign({id:id}, firestoreCases[id]); return c;
     }).filter(function(c){
       if(c.af!==state.nsSelectedName) return false;
       if(monthFilter!=='all' && c.sourceFile!==monthFilter) return false;
-      if(studentFilter && (c.tenHocVien||'').toLowerCase().indexOf(studentFilter)===-1) return false;
-      if(classFilter && (c.maLop||'').toLowerCase().indexOf(classFilter)===-1) return false;
+      if(studentFilter!=='all' && c.tenHocVien!==studentFilter) return false;
+      if(classFilter!=='all' && c.maLop!==classFilter) return false;
       return true;
     });
 
@@ -1970,8 +1994,8 @@
     renderNsCases();
   });
   document.getElementById('nsMonthFilter').addEventListener('change', renderNsCases);
-  document.getElementById('nsStudentFilter').addEventListener('input', renderNsCases);
-  document.getElementById('nsClassFilter').addEventListener('input', renderNsCases);
+  document.getElementById('nsStudentFilter').addEventListener('change', renderNsCases);
+  document.getElementById('nsClassFilter').addEventListener('change', renderNsCases);
 
 })();
 </script>

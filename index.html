@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>KPI Ledger — Scots English</title>
+<title>KPI Tracking — Scots English</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -448,6 +448,10 @@
     background:var(--red-bg); color:var(--red); border-radius:10px; padding:12px 16px;
     font-size:13px; margin-bottom:20px;
   }
+  .firestore-only-note{
+    background:var(--gold-bg); color:var(--gold); border-radius:10px; padding:12px 16px;
+    font-size:13px; margin-bottom:20px;
+  }
   .ns-picker{
     max-width:420px; margin:60px auto; text-align:center;
     background:var(--paper-card); border:1px solid var(--line); border-radius:16px; padding:36px 28px;
@@ -528,7 +532,7 @@
   <div class="brand">
     <div class="mark">S</div>
     <div>
-      <h1>KPI Ledger</h1>
+      <h1>KPI Tracking</h1>
       <div class="sub">Scots English — theo dõi &amp; duyệt giải trình</div>
     </div>
   </div>
@@ -552,6 +556,10 @@
   </div>
 
   <div id="dashboard">
+
+    <div id="firestoreOnlyNote" class="firestore-only-note" style="display:none;">
+      Đang xem dữ liệu đã đồng bộ trước đó từ máy chủ (chưa tải file Excel trong phiên này). Muốn đồng bộ thêm dữ liệu mới hoặc xem đầy đủ hơn, hãy tải lên file KPI mới nhất.
+    </div>
 
     <div class="section-label">
       <div>
@@ -740,6 +748,10 @@
     if(v instanceof Date && !isNaN(v)){
       return String(v.getDate()).padStart(2,'0')+'/'+String(v.getMonth()+1).padStart(2,'0')+'/'+v.getFullYear();
     }
+    if(typeof v === 'string' && v){
+      var d = new Date(v);
+      if(!isNaN(d)) return String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+'/'+d.getFullYear();
+    }
     return v ? String(v) : '—';
   }
   function monthLabelFromFile(name){
@@ -793,6 +805,33 @@
       if(REGIONS[i].branches.indexOf(short)!==-1) return REGIONS[i].name;
     }
     return null;
+  }
+  function sortBranchNames(branches){
+    var regionOrder = {};
+    REGIONS.forEach(function(reg, ri){ reg.branches.forEach(function(b, bi){ regionOrder[regionBranchFull(b)] = ri*100+bi; }); });
+    return branches.slice().sort(function(a,b){
+      var ra = regionOrder[a]!==undefined ? regionOrder[a] : 9999;
+      var rb = regionOrder[b]!==undefined ? regionOrder[b] : 9999;
+      if(ra!==rb) return ra-rb;
+      return a.localeCompare(b);
+    });
+  }
+  // Reads whatever's already been synced to Firestore so TLQM can browse
+  // past months without needing to re-upload the same Excel file again.
+  function firestoreOnlyBranchesAndMonths(){
+    var branchSet = {}, monthSet = {};
+    Object.keys(firestoreCases).forEach(function(id){
+      var c = firestoreCases[id];
+      if(c && c.branch) branchSet[c.branch]=true;
+      if(c && c.sourceFile) monthSet[c.sourceFile]=true;
+    });
+    Object.keys(firestoreKpiSummary).forEach(function(id){
+      var s = firestoreKpiSummary[id];
+      if(s && s.branch) branchSet[s.branch]=true;
+      if(s && s.sourceFile) monthSet[s.sourceFile]=true;
+    });
+    var months = Object.keys(monthSet).sort(function(a,b){ return monthSortKey(a)-monthSortKey(b); });
+    return {branchNames: sortBranchNames(Object.keys(branchSet)), months: months};
   }
 
   // ---------- local storage ----------
@@ -862,9 +901,8 @@
         snap.forEach(function(docSnap){ next[docSnap.id] = docSnap.data(); });
         firestoreCases = next;
         document.getElementById('nsOffline').style.display = 'none';
-        if(document.getElementById('adminApp').style.display!=='none' && state.masterRows.length){
-          var agg = aggregate(state.currentMonth, state.branchNames);
-          renderRegionGrid(agg); renderBranchGrid(agg); renderStaffTable(agg); renderQueue();
+        if(document.getElementById('adminApp').style.display!=='none'){
+          enterAdminDashboard();
         }
         if(document.getElementById('nsApp').style.display!=='none'){
           renderNsNamePicker();
@@ -878,6 +916,9 @@
         var next = {};
         snap.forEach(function(docSnap){ next[docSnap.id] = docSnap.data(); });
         firestoreKpiSummary = next;
+        if(document.getElementById('adminApp').style.display!=='none' && !state.masterRows.length){
+          enterAdminDashboard();
+        }
         if(document.getElementById('nsApp').style.display!=='none'){
           renderNsNamePicker();
           if(state.nsSelectedName) renderNsCases();
@@ -1020,6 +1061,7 @@
 
   // ---------- aggregation ----------
   function aggregate(month, branchList){
+    if(!state.masterRows.length) return aggregateFromFirestoreOnly(month, branchList);
     var result = {};
     branchList.forEach(function(b){
       result[b] = {staff:{}, totals:{A:0,B:0,C:0,D:0,unclassified:0,total:0,kpi:null}};
@@ -1063,7 +1105,44 @@
     return result;
   }
 
+  // Used when no Excel file is loaded this session but past months have
+  // already been synced to Firestore — lets TLQM keep browsing/duyệt-ing
+  // old months without re-uploading the same file over and over.
+  function aggregateFromFirestoreOnly(month, branchList){
+    var result = {};
+    branchList.forEach(function(b){ result[b] = {staff:{}, totals:{A:0,B:0,C:0,D:0,unclassified:0,total:0,kpi:1}}; });
+    Object.keys(firestoreCases).forEach(function(id){
+      var c = firestoreCases[id];
+      if(!c || !c.branch) return;
+      if(month && c.sourceFile!==month) return;
+      if(branchList.indexOf(c.branch)===-1) return;
+      var bucket = result[c.branch];
+      var af = c.af || '(Chưa gán AF)';
+      if(!bucket.staff[af]) bucket.staff[af] = {A:0,B:0,C:0,D:0,unclassified:0,total:0,kpi:1};
+      var s = bucket.staff[af];
+      if(!c.needsExplanation){
+        if(c.xepLoaiTong==='A'||c.xepLoaiTong==='B'||c.xepLoaiTong==='C'||c.xepLoaiTong==='D') s[c.xepLoaiTong]++;
+      } else if(c.status!=='approved'){
+        s.unclassified++;
+      }
+    });
+    Object.keys(result).forEach(function(b){
+      var bucket = result[b];
+      var tA=0,tB=0,tC=0,tD=0,tU=0;
+      Object.keys(bucket.staff).forEach(function(af){
+        var s = bucket.staff[af];
+        s.total = s.A+s.B+s.C+s.D+s.unclassified;
+        s.kpi = s.total>0 ? (s.A+s.B)/s.total : 1;
+        tA+=s.A; tB+=s.B; tC+=s.C; tD+=s.D; tU+=s.unclassified;
+      });
+      var tTotal = tA+tB+tC+tD+tU;
+      bucket.totals = {A:tA,B:tB,C:tC,D:tD,unclassified:tU,total:tTotal,kpi: tTotal>0 ? (tA+tB)/tTotal : 1};
+    });
+    return result;
+  }
+
   function buildQueue(month, branchList){
+    if(!state.masterRows.length) return buildQueueFromFirestoreOnly(month, branchList);
     var out = [];
     state.masterRows.forEach(function(r){
       if(month && r.sourceFile!==month) return;
@@ -1076,6 +1155,35 @@
         xepLoaiSpeaking:r.xepLoaiSpeaking, xepLoaiWritten:r.xepLoaiWritten, xepLoaiTong:r.xepLoaiTong,
         giaiTrinh: eff.giaiTrinh, status: eff.status, note: eff.note,
         submittedBy: eff.submittedBy, synced: eff.fromFirestore
+      });
+    });
+    out.sort(function(a,b){
+      function rank(c){
+        if(c.status==='approved') return 3;
+        if(c.status==='rejected') return 2;
+        if(c.giaiTrinh) return 0;
+        return 1;
+      }
+      var ra=rank(a), rb=rank(b);
+      if(ra!==rb) return ra-rb;
+      return (a.tenTrungTam||'').localeCompare(b.tenTrungTam) || (a.af||'').localeCompare(b.af);
+    });
+    return out;
+  }
+
+  function buildQueueFromFirestoreOnly(month, branchList){
+    var out = [];
+    Object.keys(firestoreCases).forEach(function(id){
+      var c = firestoreCases[id];
+      if(!c || !c.needsExplanation) return;
+      if(month && c.sourceFile!==month) return;
+      if(branchList.indexOf(c.branch)===-1) return;
+      out.push({
+        rowKey:id, tenHocVien:c.tenHocVien, maHocVien:c.maHocVien, maLop:c.maLop,
+        ngayKiemTra:c.ngayKiemTra, tenTrungTam:c.branch, af:c.af, loaiBaiThi:c.loaiBaiThi,
+        xepLoaiSpeaking:c.xepLoaiSpeaking, xepLoaiWritten:c.xepLoaiWritten, xepLoaiTong:c.xepLoaiTong,
+        giaiTrinh: c.giaiTrinh||'', status: c.status||null, note: c.note||'',
+        submittedBy: c.submittedBy||'', synced: true
       });
     });
     out.sort(function(a,b){
@@ -1271,9 +1379,19 @@
     document.getElementById('staffModalName').textContent = af;
     document.getElementById('staffModalSub').textContent = branch.replace('Scots English ','');
 
-    var rowsForStaff = state.masterRows.filter(function(r){
-      return r.af===af && r.tenTrungTam===branch;
-    });
+    var rowsForStaff;
+    if(state.masterRows.length){
+      rowsForStaff = state.masterRows.filter(function(r){
+        return r.af===af && r.tenTrungTam===branch;
+      });
+    } else {
+      // No Excel loaded this session — fall back to whatever's been
+      // synced to Firestore for this AS/AF.
+      rowsForStaff = Object.keys(firestoreCases).map(function(id){
+        var c = firestoreCases[id];
+        return c ? Object.assign({rowKey:id, tenTrungTam:c.branch}, c) : null;
+      }).filter(function(c){ return c && c.af===af && c.tenTrungTam===branch; });
+    }
     var byMonth = {};
     rowsForStaff.forEach(function(r){
       var m = r.sourceFile || '(không rõ tháng)';
@@ -1289,9 +1407,12 @@
       var html = '';
       months.slice().reverse().forEach(function(m){
         var list = byMonth[m].slice().sort(function(a,b){
-          var da = a.ngayKiemTra instanceof Date ? a.ngayKiemTra.getTime() : 0;
-          var db = b.ngayKiemTra instanceof Date ? b.ngayKiemTra.getTime() : 0;
-          return db-da;
+          function timeOf(v){
+            if(v instanceof Date && !isNaN(v)) return v.getTime();
+            if(typeof v === 'string' && v){ var d = new Date(v); if(!isNaN(d)) return d.getTime(); }
+            return 0;
+          }
+          return timeOf(b.ngayKiemTra)-timeOf(a.ngayKiemTra);
         });
         var A=0,B=0,C=0,D=0,U=0,approvedOut=0;
         list.forEach(function(r){
@@ -1655,8 +1776,10 @@
 
         document.getElementById('emptyState').style.display='none';
         document.getElementById('dashboard').style.display='block';
-        document.getElementById('exportBtn').style.display='inline-block';
+        document.getElementById('exportBtn').style.display='inline-flex';
         document.getElementById('uploadBtnText').textContent='Tải file khác';
+        document.getElementById('syncFirestoreBtn').style.display='inline-flex';
+        document.getElementById('firestoreOnlyNote').style.display='none';
 
         renderAll();
         toast('Đã nạp '+parsed.masterRows.length+' dòng dữ liệu.');
@@ -1953,14 +2076,43 @@
   // either one out — switching back to a role you already logged into is
   // instant, no re-entering credentials or re-uploading the Excel file.
   var ROLE_KEY = 'kpiLedger.role';
+  // Called after login and every time new Firestore data arrives, so TLQM
+  // sees previously-synced months even without re-uploading the Excel —
+  // and seamlessly switches back to the live Excel once one is uploaded.
+  function enterAdminDashboard(){
+    if(state.masterRows.length){
+      renderAll();
+      return;
+    }
+    var fs = firestoreOnlyBranchesAndMonths();
+    if(!fs.branchNames.length){
+      return; // nothing uploaded and nothing synced yet — keep the empty state
+    }
+    state.branchNames = fs.branchNames;
+    state.months = fs.months;
+    if(!state.currentMonth || fs.months.indexOf(state.currentMonth)===-1){
+      state.currentMonth = fs.months.length ? fs.months[fs.months.length-1] : null;
+    }
+    var monthSel = document.getElementById('monthSelect');
+    monthSel.innerHTML = fs.months.map(function(m){
+      return '<option value="'+escapeHtml(m)+'">'+escapeHtml(monthLabelFromFile(m))+'</option>';
+    }).join('');
+    monthSel.value = state.currentMonth;
+    monthSel.style.display = fs.months.length ? 'inline-block' : 'none';
+    document.getElementById('emptyState').style.display='none';
+    document.getElementById('dashboard').style.display='block';
+    document.getElementById('exportBtn').style.display='inline-flex';
+    document.getElementById('syncFirestoreBtn').style.display='none'; // nothing local to push up
+    document.getElementById('firestoreOnlyNote').style.display='block';
+    renderAll();
+  }
+
   function showAdminApp(){
     document.getElementById('roleGate').style.display='none';
     document.getElementById('adminApp').style.display='block';
     document.getElementById('nsApp').style.display='none';
     startFirestoreListenerFor('admin');
-    if(state.masterRows.length){
-      renderAll();
-    }
+    enterAdminDashboard();
   }
   function showNsApp(){
     document.getElementById('roleGate').style.display='none';
